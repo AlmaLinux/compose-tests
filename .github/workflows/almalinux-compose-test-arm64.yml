@@ -1,0 +1,184 @@
+name: almalinux-compose-test-arm64
+
+on:
+  workflow_dispatch:
+      inputs:
+
+        version_major:
+          description: 'AlmaLinux major version'
+          required: true
+          default: '9'
+          type: choice
+          options:
+            - 9
+            - 8
+
+        pungi_repository:
+          description: 'Add AlmaLinux pungi repositories'
+          type: boolean
+
+        pulp_repository:
+          description: 'Add AlmaLinux pulp repositories'
+          type: boolean
+
+jobs:
+
+  start-runner:
+    timeout-minutes: 10              # normally it only takes 1-2 minutes
+    name: Setup and start self-hosted EC2 runner
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+
+      - name: Check inputs
+        run: |
+          # Fail tasts if both pungi and pulp repositories are used
+          if [ "x${{ inputs.pungi_repository }}" = "xtrue" -a "x${{ inputs.pulp_repository }}" = "xtrue" ]; then
+            echo "[Debug] Both pungi and pulp repositories can't be used."
+            exit 1
+          fi
+          exit 0
+
+      - name: Setup and start runner
+        id: start-ec2-runner
+        uses: NextChapterSoftware/ec2-action-builder@v1.5
+        with:
+          github_token: ${{ secrets.GIT_HUB_TOKEN }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_region: ${{ secrets.AWS_REGION }}
+          ec2_ami_id: ${{ inputs.version_major == '9' && secrets.EC2_AMI_ID_AL9 || secrets.EC2_AMI_ID_AL8 }}
+          ec2_subnet_id: ${{ secrets.EC2_SUBNET_ID}}
+          ec2_security_group_id: ${{ secrets.EC2_SECURITY_GROUP_ID }}
+
+          ec2_instance_type: t4g.small        # 2 vCPU and 2 GiM Memory are enought to run tests
+          ec2_root_disk_size_gb: "16"         # override default size which is too small for actions and tests stuff
+          ec2_root_disk_ebs_class: "gp3"      # use faster and cheeper storage instead of default 'gp2'
+          ec2_instance_ttl: 60                # Optional (default is 60 minutes)
+          ec2_spot_instance_strategy: None    # Other options are: SpotOnly, BestEffort, MaxPerformance
+          ec2_instance_tags: >                # Required for IAM role resource permission scoping
+            [
+              {"Key": "Project", "Value": "ec2connect"}
+            ]
+
+  compose-test:
+    name: Testing AlmaLinux ${{ inputs.version_major }}
+    runs-on: ${{ github.run_id }}
+    needs: start-runner # required to start the main job when the runner is ready
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Prepare stuff
+      run: |
+        # Name of repository to enable (PowerTools/CRB)
+        dnf_crb_repo='PowerTools'
+        if [ "${{ inputs.version_major }}" = "9" ]; then
+          dnf_crb_repo='CRB'
+        fi
+        if [ "x${{ inputs.pulp_repository }}" = "xtrue" ]; then
+          # Lowercase the name for path in pulp's URL
+          dnf_crb_repo="${dnf_crb_repo,,}"
+        fi
+        echo "dnf_crb_repo=${dnf_crb_repo}" >> $GITHUB_ENV
+
+        # TMT tests run directory
+        echo "tmt_run_dir=/var/tmp/tmt/run-001" >> $GITHUB_ENV
+
+    - name: Create AlmaLinux pungi repository
+      if: inputs.pungi_repository
+      run: |
+        cat <<'EOF'>/etc/yum.repos.d/almalinux-pungi.repo
+        [almalinux-${{ inputs.version_major }}-appstream-pungi]
+        baseurl = http://$arch-pungi-${{ inputs.version_major }}.almalinux.org/almalinux/${{ inputs.version_major }}/$arch/latest_result/compose/AppStream/$arch/os/
+        enabled = 1
+        name = almalinux-${{ inputs.version_major }}-appstream-pungi
+
+        [almalinux-${{ inputs.version_major }}-baseos-pungi]
+        baseurl = http://$arch-pungi-${{ inputs.version_major }}.almalinux.org/almalinux/${{ inputs.version_major }}/$arch/latest_result/compose/BaseOS/$arch/os/
+        enabled = 1
+        name = almalinux-${{ inputs.version_major }}-baseos-pungi
+
+        [almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pungi]
+        baseurl = http://$arch-pungi-${{ inputs.version_major }}.almalinux.org/almalinux/${{ inputs.version_major }}/$arch/latest_result/compose/${{ env.dnf_crb_repo }}/$arch/os/
+        enabled = 1
+        name = almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pungi
+        EOF
+
+    - name: Create AlmaLinux pulp repository
+      if: inputs.pulp_repository
+      run: |
+        cat <<'EOF'>/etc/yum.repos.d/almalinux-pulp.repo
+        [almalinux-${{ inputs.version_major }}-appstream-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ inputs.version_major }}-appstream-$arch/
+        enabled = 1
+        name = almalinux-${{ inputs.version_major }}-appstream-pulp
+
+        [almalinux-${{ inputs.version_major }}-baseos-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ inputs.version_major }}-baseos-$arch/
+        enabled = 1
+        name = almalinux-${{ inputs.version_major }}-baseos-pulp
+
+        [almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-$arch/
+        enabled = 1
+        name = almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pulp
+        EOF
+
+    - name: Update the system
+      run: |
+        sudo dnf -y clean all
+        sudo dnf -y update
+
+    - name: Prepare test infrastructure (dnf install epel-release)
+      run: sudo dnf -y install epel-release
+
+    - name: Prepare test infrastructure (dnf install tmt)
+      run: |
+        enable_repo=${{ env.dnf_crb_repo }}
+        sudo dnf install -y --enablerepo=${enable_repo,,} tmt
+
+    - name: Run tests
+      run: sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; tmt -vvv -c distro=centos-stream-${{ inputs.version_major }} run --all provision --how=local'
+
+    - name: Print tests results
+      if: success() || failure()
+      run: |
+        #[Debug]
+        sudo cat ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml
+
+        sudo /bin/cp -av ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{github.action_path}}/legacy.results.yaml
+        sudo /bin/cp -av ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml ${{github.action_path}}/ng.results.yaml
+
+    - name: Print tests log
+      if: success() || failure()
+      run: |
+        #[Debug]
+        sudo cat ${{ env.tmt_run_dir }}/log.txt
+
+        sudo /bin/cp -av ${{ env.tmt_run_dir }}/log.txt ${{github.action_path}}/log.txt
+
+    - name: Collect tests output
+      if: success() || failure()
+      run: |
+        cd ${{ env.tmt_run_dir }}/
+        tar cf ${{github.action_path}}/output.tar $( find . -name output.txt ) || true
+
+    - uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: Tests log
+        path: ${{github.action_path}}/log.txt
+
+    - uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: Tests results
+        path: ${{github.action_path}}/*.results.yaml
+
+    - uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: Tests output
+        path: ${{github.action_path}}/output.tar
