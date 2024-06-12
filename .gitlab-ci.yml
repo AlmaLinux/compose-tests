@@ -19,5 +19,5 @@ validate-cs9:
   image: quay.io/testing-farm/cli:latest
   when: manual
   script:
-    - git diff --name-only $CI_MERGE_REQUEST_DIFF_BASE_SHA..$CI_COMMIT_SHA | awk -F/ '/tests/ { if ($2 == "legacy") { print "name:/" $1 "/" $2 "/" $3 } else { print "name:/" $1 "/" $2 } }' | sort -u | awk '{ if (NR > 1) {printf "|" $0 } else { printf $0 } }' > changed-tests-regex.log
+    - git diff --name-only $CI_MERGE_REQUEST_DIFF_BASE_SHA..$CI_COMMIT_SHA | awk -F/ '/tests/ { if ($2 == "legacy") { print "name:/" $1 "/" $2 "/" $3 } else { print "name:/" $1 "/" $2 ".*" } }' | sort -u | awk '{ if (NR > 1) {printf "|" $0 } else { printf $0 } }' > changed-tests-regex.log
     - testing-farm request --git-ref $CI_MERGE_REQUEST_REF_PATH --git-url $CI_MERGE_REQUEST_PROJECT_URL --compose CentOS-Stream-9 --test-filter "$(cat changed-tests-regex.log)"
