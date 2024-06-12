@@ -10,7 +10,7 @@ fi
 [ ${centos_ver} -lt 7 ] && exit
 t_Log "Running $0 - Checking if systemctl can check if a non-native service is enabled"
 
-if ! systemctl list-unit-files --all -t service --full --no-legend "kdump.service" >/dev/null; then
+if ! systemctl list-unit-files --all -t service --full --no-legend "kdump.service" | grep "kdump.service" >/dev/null; then
     t_Log "The kdump.service not found -> SKIP"
     exit 0
 fi

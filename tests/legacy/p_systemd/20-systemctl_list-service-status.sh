@@ -9,7 +9,7 @@ if [ "$CONTAINERTEST" -eq "1" ]; then
     exit 0
 fi
 
-if ! systemctl list-unit-files --all -t service --full --no-legend "auditd.service" >/dev/null; then
+if ! systemctl list-unit-files --all -t service --full --no-legend "auditd.service" | grep "auditd.service" >/dev/null; then
     t_Log "The auditd.service not found -> SKIP"
     exit 0
 fi
