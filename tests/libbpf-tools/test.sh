@@ -8,8 +8,6 @@ tools_versions_test=(
     bpf-biosnoop
     bpf-biostacks
     bpf-bitesize
-    bpf-btrfsdist
-    bpf-btrfsslower
     bpf-cachestat
     bpf-capable
     bpf-cpudist

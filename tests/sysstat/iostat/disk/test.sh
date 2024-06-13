@@ -4,7 +4,7 @@
 rlJournalStart
 
   rlPhaseStartSetup
-  rlRun "yum install -y sysstat"
+  rlRun "yum install -y sysstat" 0 "Installing sysstat"
   rlRun 'TmpDir=$(mktemp -d)' 0 'Creating tmp directory' # no-reboot
   rlRun "pushd $TmpDir"
   rlRun "echo 1 > /proc/sys/vm/drop_caches" 0 "Clear out the pagecache to get an accurate reading"
@@ -29,7 +29,7 @@ rlJournalStart
   rlPhaseStartCleanup
   rlRun "popd"
   rlRun "rm -r $TmpDir" 0 "Removing tmp directory"
-  rlRun "yum remove -y sysstat"
+  rlRun "yum remove -y sysstat" 0 "Removing sysstat"
   rlPhaseEnd
 
 rlJournalEnd
