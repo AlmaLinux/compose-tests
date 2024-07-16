@@ -21,6 +21,10 @@ on:
           description: 'Add AlmaLinux pulp repositories'
           type: boolean
 
+        rerun_failed:
+          description: 'Re-run failed tests'
+          type: boolean
+          default: true
 jobs:
 
   start-runner:
@@ -131,19 +135,19 @@ jobs:
         sudo dnf -y clean all
         sudo dnf -y update
 
-    - name: Prepare test infrastructure (dnf install epel-release)
-      run: sudo dnf -y install epel-release
-
-    - name: Prepare test infrastructure (dnf install tmt)
+    - name: Prepare test infrastructure
       run: |
+        sudo dnf -y -q install epel-release
+
         enable_repo=${{ env.dnf_crb_repo }}
-        sudo dnf install -y --enablerepo=${enable_repo,,} tmt
+        sudo dnf install -y -q --enablerepo=${enable_repo,,} tmt
 
     - name: Run tests
+      id: run-tests
+      continue-on-error: true
       run: sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; tmt -vvv -c distro=centos-stream-${{ inputs.version_major }} run --all provision --how=local'
 
     - name: Print tests results
-      if: success() || failure()
       run: |
         #[Debug]
         sudo cat ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml
@@ -152,7 +156,6 @@ jobs:
         sudo /bin/cp -av ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml ${{github.action_path}}/ng.results.yaml
 
     - name: Print tests log
-      if: success() || failure()
       run: |
         #[Debug]
         sudo cat ${{ env.tmt_run_dir }}/log.txt
@@ -160,25 +163,83 @@ jobs:
         sudo /bin/cp -av ${{ env.tmt_run_dir }}/log.txt ${{github.action_path}}/log.txt
 
     - name: Collect tests output
-      if: success() || failure()
       run: |
         cd ${{ env.tmt_run_dir }}/
         tar cf ${{github.action_path}}/output.tar $( find . -name output.txt ) || true
 
     - uses: actions/upload-artifact@v4
-      if: success() || failure()
       with:
         name: Tests log
         path: ${{github.action_path}}/log.txt
 
     - uses: actions/upload-artifact@v4
-      if: success() || failure()
       with:
         name: Tests results
         path: ${{github.action_path}}/*.results.yaml
 
     - uses: actions/upload-artifact@v4
-      if: success() || failure()
       with:
         name: Tests output
         path: ${{github.action_path}}/output.tar
+
+    - name: Get list of failed tests
+      if: job.steps.run-tests.status == failure()
+      run: |
+        # Install 'yq'
+        sudo dnf -y -q install wget
+        wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64 -O /usr/bin/yq
+        chmod +x /usr/bin/yq
+
+        # Create failed tests list
+        yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml \
+          > ${{ env.tmt_run_dir }}/tests_failed.txt
+
+    - name: Re-run failed tests, prepare tests summary
+      if: job.steps.run-tests.status == failure()
+      run: |
+        # Tests results and the step exit code
+        rerun_results=
+        exit_code=0
+
+        # Read failed tests list
+        while IFS= read -r test_failed ; do
+
+          # Include failed test name into resiults summary
+          test_result="${test_failed}"
+
+          # Re-run specific failed test
+          if [ "${{ inputs.rerun_failed }}" = "true" ]; then
+            if sudo sh -c "export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; tmt -vvv -c distro=centos-stream-${{ inputs.version_major }} run --all provision --how=local test --name $test_failed"; then
+              test_result="${test_failed} [re-run ✅]"
+            else
+              test_result="${test_failed} [re-run ❌]"
+              exit_code=1
+            fi
+          else
+            echo "[Debug]"
+            echo "If without re-run, fail this step as the '${test_failed}' test previously failed."
+            exit_code=1
+          fi
+
+          # Format test results in list format: 'item1', 'item2', ...
+          [ "x${rerun_results}" = "x" ] && rerun_results="'${test_result}'" || rerun_results="${rerun_results}, '${test_result}'"
+
+        done < ${{ env.tmt_run_dir }}/tests_failed.txt
+
+        # Export header and test results
+        [ "x${rerun_results}" = "x" ] && summary_header="✅ All tests pass." || summary_header="❌ Failed tests:"
+        echo "rerun_results=${rerun_results}" >> $GITHUB_ENV
+        echo "summary_header=${summary_header}" >> $GITHUB_ENV
+
+        exit $exit_code
+
+    - name: Print tests summary
+      if: job.steps.run-tests.status == failure() || failure()
+      uses: actions/github-script@v7
+      with:
+        result-encoding: string
+        script: |
+          core.summary
+              .addHeading('${{ env.summary_header }}', '4')
+              .addList([${{ env.rerun_results }}], true)
+              .write()
