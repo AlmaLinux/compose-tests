@@ -21,6 +21,11 @@ on:
           description: 'Add AlmaLinux pulp repositories'
           type: boolean
 
+        rerun_failed:
+          description: 'Re-run failed tests'
+          type: boolean
+          default: true
+
 jobs:
   compose-test:
     name: Testing AlmaLinux ${{ inputs.version_major }}
@@ -48,6 +53,9 @@ jobs:
         # Use proper Vagrantfile and set ENV variable of config.vm.box
         cp -av ci/Vagrant/Vagrantfile ./
         echo vm_box='almalinux/${{ inputs.version_major }}' > .env
+
+        # TMT tests run directory
+        echo "tmt_run_dir=/var/tmp/tmt/run-001" >> $GITHUB_ENV
 
     - name: Install KVM Packages and Start libvirt
       run: |
@@ -126,14 +134,18 @@ jobs:
         name = almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pulp
         EOF
 
+    - name: Create 'yq' script to get failed tests
+      run: |
+        cat <<'EOF'>./yq.sh
+        yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml > ${{ env.tmt_run_dir }}/tests_failed.txt
+        EOF
+
     - name: Run vagrant up
       run: sudo vagrant up almalinux
 
-    - name: Prepare test infrastructure (dnf install epel-release)
-      run: sudo vagrant ssh almalinux -c 'sudo dnf -y install epel-release'
-
-    - name: Prepare test infrastructure (dnf install tmt)
+    - name: Prepare test infrastructure
       run: |
+        sudo vagrant ssh almalinux -c 'sudo dnf -y install epel-release'
         enable_repo=${{ env.dnf_crb_repo }}
         sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo=${enable_repo,,} tmt"
 
@@ -141,41 +153,99 @@ jobs:
       run: sudo vagrant ssh almalinux -c 'sudo cp -a /vagrant /compose-tests'
 
     - name: Run tests
+      id: run-tests
+      continue-on-error: true
       run: sudo vagrant ssh almalinux -c "sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; cd /compose-tests; tmt -vvv -c distro=centos-stream-${{ inputs.version_major }} run --all provision --how=local'"
 
     - name: Print tests results
-      if: success() || failure()
       run: |
-        sudo vagrant ssh almalinux -c "sudo cat /var/tmp/tmt/run-001/plans/legacy/execute/results.yaml /var/tmp/tmt/run-001/plans/ng/execute/results.yaml"
-        sudo vagrant scp almalinux:/var/tmp/tmt/run-001/plans/legacy/execute/results.yaml ${{github.action_path}}/legacy.results.yaml
-        sudo vagrant scp almalinux:/var/tmp/tmt/run-001/plans/ng/execute/results.yaml ${{github.action_path}}/ng.results.yaml
+        sudo vagrant ssh almalinux -c "sudo cat ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml"
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{github.action_path}}/legacy.results.yaml
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml ${{github.action_path}}/ng.results.yaml
 
     - name: Print tests log
-      if: success() || failure()
       run: |
-        sudo vagrant ssh almalinux -c "sudo cat /var/tmp/tmt/run-001/log.txt"
-        sudo vagrant scp almalinux:/var/tmp/tmt/run-001/log.txt ${{github.action_path}}/log.txt
+        sudo vagrant ssh almalinux -c "sudo cat ${{ env.tmt_run_dir }}/log.txt"
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/log.txt ${{github.action_path}}/log.txt
 
     - name: Collect tests output
-      if: success() || failure()
       run: |
-        sudo vagrant ssh almalinux -c 'sudo sh -c "cd /var/tmp/tmt/run-001/; tar cf output.tar plans/legacy/execute/data/guest/default-0/tests/legacy/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/*/*/output.txt"'
-        sudo vagrant scp almalinux:/var/tmp/tmt/run-001/output.tar ${{github.action_path}}/output.tar
+        sudo vagrant ssh almalinux -c 'sudo sh -c "cd ${{ env.tmt_run_dir }}/; tar cf output.tar plans/legacy/execute/data/guest/default-0/tests/legacy/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/*/*/output.txt"'
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/output.tar ${{github.action_path}}/output.tar
 
     - uses: actions/upload-artifact@v4
-      if: success() || failure()
       with:
         name: Tests log
         path: ${{github.action_path}}/log.txt
 
     - uses: actions/upload-artifact@v4
-      if: success() || failure()
       with:
         name: Tests results
         path: ${{github.action_path}}/*.results.yaml
 
     - uses: actions/upload-artifact@v4
-      if: success() || failure()
       with:
         name: Tests output
         path: ${{github.action_path}}/output.tar
+
+    - name: Get list of failed tests
+      if: job.steps.run-tests.status == failure()
+      run: |
+        # Install 'yq'
+        sudo vagrant ssh almalinux -c 'sudo dnf -y -q install wget'
+        sudo vagrant ssh almalinux -c 'sudo wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq'
+        sudo vagrant ssh almalinux -c 'sudo chmod +x /usr/bin/yq'
+
+        # Create failed tests list
+        sudo vagrant ssh almalinux -c "sudo sh -c 'chmod +x /vagrant/yq.sh; /vagrant/yq.sh'"
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/tests_failed.txt ${{github.action_path}}/tests_failed.txt
+
+    - name: Re-run failed tests, prepare tests summary
+      if: job.steps.run-tests.status == failure()
+      run: |
+        # Tests results and the step exit code
+        rerun_results=
+        exit_code=0
+
+        # Read failed tests list
+        while IFS= read -r test_failed ; do
+
+          # Include failed test name into resiults summary
+          test_result="${test_failed}"
+
+          # Re-run specific failed test
+          if [ "${{ inputs.rerun_failed }}" = "true" ]; then
+            if sudo vagrant ssh almalinux -c "sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; cd /compose-tests; tmt -vvv -c distro=centos-stream-${{ inputs.version_major }} run --all provision --how=local test --name ${test_failed}'"; then
+              test_result="${test_failed} [re-run ✅]"
+            else
+              test_result="${test_failed} [re-run ❌]"
+              exit_code=1
+            fi
+          else
+            echo "[Debug]"
+            echo "If without re-run, fail this step as the '${test_failed}' test previously failed."
+            exit_code=1
+          fi
+
+          # Format test results in list format: 'item1', 'item2', ...
+          [ "x${rerun_results}" = "x" ] && rerun_results="'${test_result}'" || rerun_results="${rerun_results}, '${test_result}'"
+
+        done < ${{github.action_path}}/tests_failed.txt
+
+        # Export header and test results
+        [ "x${rerun_results}" = "x" ] && summary_header="✅ All tests pass." || summary_header="❌ Failed tests:"
+        echo "rerun_results=${rerun_results}" >> $GITHUB_ENV
+        echo "summary_header=${summary_header}" >> $GITHUB_ENV
+
+        exit $exit_code
+
+    - name: Print tests summary
+      if: job.steps.run-tests.status == failure() || failure()
+      uses: actions/github-script@v7
+      with:
+        result-encoding: string
+        script: |
+          core.summary
+              .addHeading('${{ env.summary_header }}', '4')
+              .addList([${{ env.rerun_results }}], true)
+              .write()
