@@ -7,5 +7,6 @@ t_Log "Running $0 group add tests"
 sed -i /testgroup/d /etc/group
 
 echo "Create a new group"
-groupadd -g 1010 testgroup
+next_guid=$((10+$(awk -F: '{print $3}' /etc/group | sort | tail -1)))
+groupadd -g $next_guid testgroup
 t_CheckExitStatus $?
