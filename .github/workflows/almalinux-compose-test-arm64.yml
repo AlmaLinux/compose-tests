@@ -14,11 +14,11 @@ on:
             - 8
 
         pungi_repository:
-          description: 'Add AlmaLinux pungi repositories'
+          description: 'Add pungi repositories'
           type: boolean
 
         pulp_repository:
-          description: 'Add AlmaLinux pulp repositories'
+          description: 'Add pulp repositories'
           type: boolean
 
         rerun_failed:
@@ -35,15 +35,6 @@ jobs:
       actions: write
     steps:
 
-      - name: Check inputs
-        run: |
-          # Fail tasts if both pungi and pulp repositories are used
-          if [ "x${{ inputs.pungi_repository }}" = "xtrue" -a "x${{ inputs.pulp_repository }}" = "xtrue" ]; then
-            echo "[Debug] Both pungi and pulp repositories can't be used."
-            exit 1
-          fi
-          exit 0
-
       - name: Setup and start runner
         id: start-ec2-runner
         uses: NextChapterSoftware/ec2-action-builder@v1.5
@@ -52,7 +43,7 @@ jobs:
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws_region: ${{ secrets.AWS_REGION }}
-          ec2_ami_id: ${{ inputs.version_major == '9' && secrets.EC2_AMI_ID_AL9 || secrets.EC2_AMI_ID_AL8 }}
+          ec2_ami_id: ${{ secrets[format('EC2_AMI_ID_AL{0}',  ( inputs.version_major == '10-kitten' && '10_KITTEN' || inputs.version_major))] }}
           ec2_subnet_id: ${{ secrets.EC2_SUBNET_ID}}
           ec2_security_group_id: ${{ secrets.EC2_SECURITY_GROUP_ID }}
 
@@ -67,7 +58,7 @@ jobs:
             ]
 
   compose-test:
-    name: Testing AlmaLinux ${{ inputs.version_major }}
+    name: AlmaLinux ${{ inputs.version_major }}
     runs-on: ${{ github.run_id }}
     needs: start-runner # required to start the main job when the runner is ready
 
@@ -76,16 +67,54 @@ jobs:
 
     - name: Prepare stuff
       run: |
+        # Environment variables
+        pungi_latest_result=latest_result
+        pulp_root=${{ inputs.version_major }}
+        tmt_options=
+        rpm_gpg_key=/etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux
+        vm_box=almalinux/${{ inputs.version_major }}
+        release_version=${{ inputs.version_major }}
+        dnf_crb_repo='CRB'
+
+        case ${{ inputs.version_major }} in
+          8)
+            dnf_crb_repo='PowerTools'
+            ;;
+          9)
+            tmt_options='--feeling-safe'
+            rpm_gpg_key="${rpm_gpg_key}-9"
+            ;;
+          10-kitten)
+            vm_box=lkhn/almalinux-kitten
+            release_version=10
+            pulp_root=kitten-10
+            pungi_latest_result="${pungi_latest_result}_almalinux-kitten"
+            tmt_options='--feeling-safe'
+            rpm_gpg_key="${rpm_gpg_key}-10"
+            ;;
+        esac
+        # Release major version
+        echo "release_version=${release_version}" >> $GITHUB_ENV
+
+        # Pulp repository root of the release
+        echo "pulp_root=${pulp_root}" >> $GITHUB_ENV
+
+        # Pungi repository latest results directory
+        echo "pungi_latest_result=${pungi_latest_result}" >> $GITHUB_ENV
+
         # Name of repository to enable (PowerTools/CRB)
-        dnf_crb_repo='PowerTools'
-        if [ "${{ inputs.version_major }}" = "9" ]; then
-          dnf_crb_repo='CRB'
-        fi
         if [ "x${{ inputs.pulp_repository }}" = "xtrue" ]; then
           # Lowercase the name for path in pulp's URL
-          dnf_crb_repo="${dnf_crb_repo,,}"
+          pulp_crb_repo="${dnf_crb_repo,,}"
         fi
         echo "dnf_crb_repo=${dnf_crb_repo}" >> $GITHUB_ENV
+        echo "pulp_crb_repo=${pulp_crb_repo}" >> $GITHUB_ENV
+
+        # TMT extra options
+        echo "tmt_options=${tmt_options}" >> $GITHUB_ENV
+
+        # RPM_GPG_KEY file
+        echo "rpm_gpg_key=${rpm_gpg_key}" >> $GITHUB_ENV
 
         # TMT tests run directory
         echo "tmt_run_dir=/var/tmp/tmt/run-001" >> $GITHUB_ENV
@@ -94,40 +123,46 @@ jobs:
       if: inputs.pungi_repository
       run: |
         cat <<'EOF'>/etc/yum.repos.d/almalinux-pungi.repo
-        [almalinux-${{ inputs.version_major }}-appstream-pungi]
-        baseurl = http://$arch-pungi-${{ inputs.version_major }}.almalinux.dev/almalinux/${{ inputs.version_major }}/$arch/latest_result/compose/AppStream/$arch/os/
+        [almalinux-${{ env.release_version }}-appstream-pungi]
+        baseurl = http://aarch64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/$arch/${{ env.pungi_latest_result }}/compose/AppStream/$arch/os/
         enabled = 1
-        name = almalinux-${{ inputs.version_major }}-appstream-pungi
+        name = almalinux-${{ env.release_version }}-appstream-pungi
+        gpgkey=file://${{ env.rpm_gpg_key }}
 
-        [almalinux-${{ inputs.version_major }}-baseos-pungi]
-        baseurl = http://$arch-pungi-${{ inputs.version_major }}.almalinux.dev/almalinux/${{ inputs.version_major }}/$arch/latest_result/compose/BaseOS/$arch/os/
+        [almalinux-${{ env.release_version }}-baseos-pungi]
+        baseurl = http://aarch64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/$arch/${{ env.pungi_latest_result }}/compose/BaseOS/$arch/os/
         enabled = 1
-        name = almalinux-${{ inputs.version_major }}-baseos-pungi
+        name = almalinux-${{ env.release_version }}-baseos-pungi
+        gpgkey=file://${{ env.rpm_gpg_key }}
 
-        [almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pungi]
-        baseurl = http://$arch-pungi-${{ inputs.version_major }}.almalinux.dev/almalinux/${{ inputs.version_major }}/$arch/latest_result/compose/${{ env.dnf_crb_repo }}/$arch/os/
+        [almalinux-${{ env.release_version }}-${{ env.dnf_crb_repo }}-pungi]
+        baseurl = http://aarch64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/$arch/${{ env.pungi_latest_result }}/compose/${{ env.dnf_crb_repo }}/$arch/os/
         enabled = 1
-        name = almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pungi
+        name = almalinux-${{ env.release_version }}-${{ env.dnf_crb_repo }}-pungi
+        gpgkey=file://${{ env.rpm_gpg_key }}
         EOF
 
     - name: Create AlmaLinux pulp repository
       if: inputs.pulp_repository
       run: |
         cat <<'EOF'>/etc/yum.repos.d/almalinux-pulp.repo
-        [almalinux-${{ inputs.version_major }}-appstream-pulp]
-        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ inputs.version_major }}-appstream-$arch/
+        [almalinux-${{ env.pulp_root }}-appstream-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-appstream-$arch/
         enabled = 1
-        name = almalinux-${{ inputs.version_major }}-appstream-pulp
+        name = almalinux-${{ env.pulp_root }}-appstream-pulp
+        gpgkey=file://${{ env.rpm_gpg_key }}
 
-        [almalinux-${{ inputs.version_major }}-baseos-pulp]
-        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ inputs.version_major }}-baseos-$arch/
+        [almalinux-${{ env.pulp_root }}-baseos-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-baseos-$arch/
         enabled = 1
-        name = almalinux-${{ inputs.version_major }}-baseos-pulp
+        name = almalinux-${{ env.pulp_root }}-baseos-pulp
+        gpgkey=file://${{ env.rpm_gpg_key }}
 
-        [almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pulp]
-        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-$arch/
+        [almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-$arch/
         enabled = 1
-        name = almalinux-${{ inputs.version_major }}-${{ env.dnf_crb_repo }}-pulp
+        name = almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-pulp
+        gpgkey=file://${{ env.rpm_gpg_key }}
         EOF
 
     - name: Update the system
@@ -135,19 +170,33 @@ jobs:
         sudo dnf -y clean all
         sudo dnf -y update
 
+    - name: Get system release
+      run: |
+        echo "system_release=$(cat /etc/almalinux-release)" >> $GITHUB_ENV
+
     - name: Prepare test infrastructure
       run: |
-        sudo dnf -y -q install epel-release
-
         enable_repo=${{ env.dnf_crb_repo }}
-        sudo dnf install -y -q --enablerepo=${enable_repo,,} tmt
+        case ${{ inputs.version_major }} in
+          10-kitten*)
+            sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel
+            sudo dnf install -y --enablerepo='${enable_repo,,} devel' python3-pip beakerlib
+            sudo sh -c 'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
+            ;;
+          *)
+            sudo dnf -y install epel-release
+            sudo dnf install -y --enablerepo=${enable_repo,,} tmt
+            ;;
+        esac
+
+        echo "[Debug] $(sudo sh -c 'export PATH=$PATH:/usr/local/bin; tmt --version')"
 
     - name: Run tests
       id: run-tests
       continue-on-error: true
-      run: sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; tmt -vvv -c distro=centos-stream-${{ inputs.version_major }} run --all provision --how=local'
+      run: sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=$PATH:/usr/local/bin; tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }}'
 
-    - name: Print tests results
+    - name: ${{ inputs.version_major }} tests results
       run: |
         #[Debug]
         sudo cat ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml
@@ -155,14 +204,14 @@ jobs:
         sudo /bin/cp -av ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{github.action_path}}/legacy.results.yaml
         sudo /bin/cp -av ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml ${{github.action_path}}/ng.results.yaml
 
-    - name: Print tests log
+    - name: ${{ inputs.version_major }} tests log
       run: |
         #[Debug]
         sudo cat ${{ env.tmt_run_dir }}/log.txt
 
         sudo /bin/cp -av ${{ env.tmt_run_dir }}/log.txt ${{github.action_path}}/log.txt
 
-    - name: Collect tests output
+    - name: ${{ inputs.version_major }} tests output
       run: |
         cd ${{ env.tmt_run_dir }}/
         tar cf ${{github.action_path}}/output.tar $( find . -name output.txt ) || true
@@ -194,6 +243,9 @@ jobs:
         yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml \
           > ${{ env.tmt_run_dir }}/tests_failed.txt
 
+        echo "[Debug] failed tests:"
+        echo "$(cat ${{ env.tmt_run_dir }}/tests_failed.txt)"
+
     - name: Re-run failed tests, prepare tests summary
       if: job.steps.run-tests.status == failure()
       run: |
@@ -202,14 +254,15 @@ jobs:
         exit_code=0
 
         # Read failed tests list
-        while IFS= read -r test_failed ; do
+        for test_failed in $(cat ${{ env.tmt_run_dir }}/tests_failed.txt | xargs); do
+          echo "[Debug] Re-run '${test_failed}'"
 
           # Include failed test name into resiults summary
           test_result="${test_failed}"
 
           # Re-run specific failed test
           if [ "${{ inputs.rerun_failed }}" = "true" ]; then
-            if sudo sh -c "export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; tmt -vvv -c distro=centos-stream-${{ inputs.version_major }} run --all provision --how=local test --name $test_failed"; then
+            if sudo sh -c "export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=$PATH:/usr/local/bin; tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }} test --name ${test_failed}"; then
               test_result="${test_failed} [re-run ✅]"
             else
               test_result="${test_failed} [re-run ❌]"
@@ -224,7 +277,7 @@ jobs:
           # Format test results in list format: 'item1', 'item2', ...
           [ "x${rerun_results}" = "x" ] && rerun_results="'${test_result}'" || rerun_results="${rerun_results}, '${test_result}'"
 
-        done < ${{ env.tmt_run_dir }}/tests_failed.txt
+        done
 
         # Export header and test results
         [ "x${rerun_results}" = "x" ] && summary_header="✅ All tests pass." || summary_header="❌ Failed tests:"
@@ -240,6 +293,9 @@ jobs:
         result-encoding: string
         script: |
           core.summary
+              .addHeading('${{ env.system_release }}', '4')
+              .addHeading('Used repositories:', '4')
+              .addList(['pulp - ${{ inputs.pulp_repository && '✅' || '❌'}}','pungi - ${{ inputs.pungi_repository && '✅' || '❌'}}'], true)
               .addHeading('${{ env.summary_header }}', '4')
               .addList([${{ env.rerun_results }}], true)
               .write()

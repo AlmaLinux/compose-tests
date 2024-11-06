@@ -55,6 +55,7 @@ jobs:
             dnf_crb_repo='PowerTools'
             ;;
           9)
+            tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-9"
             ;;
           10-kitten)
@@ -210,7 +211,7 @@ jobs:
           10-kitten*)
             sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel"
             sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='${enable_repo,,} devel' python3-pip beakerlib"
-            sudo vagrant ssh almalinux -c "sudo pip install tmt"
+            sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
             ;;
           *)
             sudo vagrant ssh almalinux -c "sudo dnf -y install epel-release"
