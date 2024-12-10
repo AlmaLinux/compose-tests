@@ -7,9 +7,10 @@ on:
         version_major:
           description: 'AlmaLinux major version'
           required: true
-          default: '9'
+          default: '10'
           type: choice
           options:
+            - 10
             - 9
             - 8
 
@@ -72,7 +73,6 @@ jobs:
         pulp_root=${{ inputs.version_major }}
         tmt_options=
         rpm_gpg_key=/etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux
-        vm_box=almalinux/${{ inputs.version_major }}
         release_version=${{ inputs.version_major }}
         dnf_crb_repo='CRB'
 
@@ -84,8 +84,11 @@ jobs:
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-9"
             ;;
+          10)
+            tmt_options='--feeling-safe'
+            rpm_gpg_key="${rpm_gpg_key}-10"
+            ;;
           10-kitten)
-            vm_box=lkhn/almalinux-kitten
             release_version=10
             pulp_root=kitten-10
             pungi_latest_result="${pungi_latest_result}_almalinux-kitten"
@@ -178,10 +181,19 @@ jobs:
       run: |
         enable_repo=${{ env.dnf_crb_repo }}
         case ${{ inputs.version_major }} in
-          10-kitten*)
+          10-kitten)
             sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel
-            sudo dnf install -y --enablerepo='${enable_repo,,} devel' python3-pip beakerlib
-            sudo sh -c 'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
+            sudo dnf install -y --enablerepo="${enable_repo,,} devel" python3-pip beakerlib
+            sudo sh -c 'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt initscripts-service'
+            ;;
+          10)
+            sudo dnf config-manager --add-repo https://build.almalinux.org/pulp/content/builds/AlmaLinux-Kitten-10-aarch64-20670-br/
+            sudo dnf install -y --enablerepo="${enable_repo,,} extras" python3-pip beakerlib initscripts-service
+            sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
+            ;;
+          9)
+            sudo dnf -y install epel-release
+            sudo dnf install -y --enablerepo=${enable_repo,,} tmt initscripts-service
             ;;
           *)
             sudo dnf -y install epel-release
