@@ -7,10 +7,11 @@ on:
         version_major:
           description: 'AlmaLinux major version'
           required: true
-          default: '10-kitten'
+          default: '10'
           type: choice
           options:
             - 10-kitten
+            - 10
             - 9
             - 8
 
@@ -34,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: ${{ fromJSON(format('["{0}"]', ( inputs.version_major == '10-kitten' && '10-kitten", "10-kitten-x86_64_v2' || inputs.version_major ) )) }}
+        variant: ${{ fromJSON(format('["{0}"]', ( inputs.version_major == '10-kitten' && '10-kitten", "10-kitten-x86_64_v2' || ( inputs.version_major == '10' && '10", "10-x86_64_v2' || inputs.version_major ) ) )) }}
 
     steps:
     - uses: actions/checkout@v4
@@ -58,8 +59,18 @@ jobs:
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-9"
             ;;
+          10)
+            vm_box=lkhn/almalinux-10                # TODO: use official image when available
+            tmt_options='--feeling-safe'
+            rpm_gpg_key="${rpm_gpg_key}-10"
+            ;;
+          10-x86_64_v2)
+            vm_box=yuravk/almalinux-10-x86-64-v2    # TODO: use official image when available
+            tmt_options='--feeling-safe'
+            rpm_gpg_key="${rpm_gpg_key}-10"
+            ;;
           10-kitten)
-            vm_box=lkhn/almalinux-kitten
+            vm_box=lkhn/almalinux-kitten            # TODO: use official image when available
             release_version=10
             pulp_root=kitten-10
             pungi_latest_result="${pungi_latest_result}_almalinux-kitten"
@@ -67,7 +78,7 @@ jobs:
             rpm_gpg_key="${rpm_gpg_key}-10"
             ;;
           10-kitten-x86_64_v2)
-            vm_box=lkhn/almalinux-kitten-x86-64-v2
+            vm_box=lkhn/almalinux-kitten-x86-64-v2  # TODO: use official image when available
             release_version=10
             pulp_root=kitten-10
             pungi_latest_result="${pungi_latest_result}_almalinux-kitten"
@@ -217,6 +228,12 @@ jobs:
           10-kitten*)
             sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel"
             sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='${enable_repo,,} devel' python3-pip beakerlib"
+            sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
+            ;;
+          10*)
+            [ "${{ matrix.variant }}" = "10" ] && basearch=x86_64 || basearch=x86_64_v2
+            sudo vagrant ssh almalinux -c "sudo dnf config-manager --add-repo https://build.almalinux.org/pulp/content/builds/AlmaLinux-Kitten-10-${basearch}-20670-br/"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='${enable_repo,,} extras' python3-pip beakerlib initscripts-service"
             sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
             ;;
           9)
