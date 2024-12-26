@@ -50,6 +50,7 @@ jobs:
         vm_box=almalinux/${{ inputs.version_major }}
         release_version=${{ inputs.version_major }}
         dnf_crb_repo='CRB'
+        basearch=x86_64
 
         case ${{ matrix.variant }} in
           8)
@@ -68,6 +69,7 @@ jobs:
             vm_box=yuravk/almalinux-10-x86-64-v2    # TODO: use official image when available
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
+            basearch=x86_64_v2
             ;;
           10-kitten)
             vm_box=lkhn/almalinux-kitten            # TODO: use official image when available
@@ -84,10 +86,14 @@ jobs:
             pungi_latest_result="${pungi_latest_result}_almalinux-kitten"
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
+            basearch=x86_64_v2
             ;;
         esac
         # Release major version
         echo "release_version=${release_version}" >> $GITHUB_ENV
+
+        # Basearch for the repositories
+        echo "basearch=${basearch}" >> $GITHUB_ENV
 
         # Pulp repository root of the release
         echo "pulp_root=${pulp_root}" >> $GITHUB_ENV
@@ -161,19 +167,19 @@ jobs:
       run: |
         cat <<'EOF'>./almalinux-pungi.repo
         [almalinux-${{ env.release_version }}-appstream-pungi]
-        baseurl = http://x86-64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/$arch/${{ env.pungi_latest_result }}/compose/AppStream/$arch/os/
+        baseurl = http://x86-64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/${{ env.basearch }}/${{ env.pungi_latest_result }}/compose/AppStream/${{ env.basearch }}/os/
         enabled = 1
         name = almalinux-${{ env.release_version }}-appstream-pungi
         gpgkey=file://${{ env.rpm_gpg_key }}
 
         [almalinux-${{ env.release_version }}-baseos-pungi]
-        baseurl = http://x86-64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/$arch/${{ env.pungi_latest_result }}/compose/BaseOS/$arch/os/
+        baseurl = http://x86-64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/${{ env.basearch }}/${{ env.pungi_latest_result }}/compose/BaseOS/${{ env.basearch }}/os/
         enabled = 1
         name = almalinux-${{ env.release_version }}-baseos-pungi
         gpgkey=file://${{ env.rpm_gpg_key }}
 
         [almalinux-${{ env.release_version }}-${{ env.dnf_crb_repo }}-pungi]
-        baseurl = http://x86-64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/$arch/${{ env.pungi_latest_result }}/compose/${{ env.dnf_crb_repo }}/$arch/os/
+        baseurl = http://x86-64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/${{ env.basearch }}/${{ env.pungi_latest_result }}/compose/${{ env.dnf_crb_repo }}/${{ env.basearch }}/os/
         enabled = 1
         name = almalinux-${{ env.release_version }}-${{ env.dnf_crb_repo }}-pungi
         gpgkey=file://${{ env.rpm_gpg_key }}
@@ -184,19 +190,19 @@ jobs:
       run: |
         cat <<'EOF'>./almalinux-pulp.repo
         [almalinux-${{ env.pulp_root }}-appstream-pulp]
-        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-appstream-$arch/
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-appstream-${{ env.basearch }}/
         enabled = 1
         name = almalinux-${{ env.pulp_root }}-appstream-pulp
         gpgkey=file://${{ env.rpm_gpg_key }}
 
         [almalinux-${{ env.pulp_root }}-baseos-pulp]
-        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-baseos-$arch/
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-baseos-${{ env.basearch }}/
         enabled = 1
         name = almalinux-${{ env.pulp_root }}-baseos-pulp
         gpgkey=file://${{ env.rpm_gpg_key }}
 
         [almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-pulp]
-        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-$arch/
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-${{ env.basearch }}/
         enabled = 1
         name = almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-pulp
         gpgkey=file://${{ env.rpm_gpg_key }}
