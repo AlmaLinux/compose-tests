@@ -72,7 +72,7 @@ jobs:
             basearch=x86_64_v2
             ;;
           10-kitten)
-            vm_box=lkhn/almalinux-kitten            # TODO: use official image when available
+            vm_box=almalinux/10-kitten
             release_version=10
             pulp_root=kitten-10
             pungi_latest_result="${pungi_latest_result}_almalinux-kitten"
@@ -80,7 +80,7 @@ jobs:
             rpm_gpg_key="${rpm_gpg_key}-10"
             ;;
           10-kitten-x86_64_v2)
-            vm_box=lkhn/almalinux-kitten-x86-64-v2  # TODO: use official image when available
+            vm_box=almalinux/10-kitten-x86_64_v2
             release_version=10
             pulp_root=kitten-10
             pungi_latest_result="${pungi_latest_result}_almalinux-kitten"
@@ -233,7 +233,7 @@ jobs:
         case ${{ matrix.variant }} in
           10-kitten*)
             sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel"
-            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='${enable_repo,,} devel' python3-pip beakerlib"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='${enable_repo,,} devel' python3-pip beakerlib initscripts-service"
             sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
             ;;
           10*)
