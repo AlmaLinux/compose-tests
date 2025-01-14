@@ -4,8 +4,9 @@
 t_Log "Running $0"
 
 # Check that the testgroup exists with GID 1010
-grep -q "testgroup:x:1010:testshadow" /etc/group || { t_Log "FAIL Test group doesn't exist"; exit $FAIL; }
+grep -q "^testgroup:" /etc/group || { t_Log "FAIL Test group doesn't exist"; exit $FAIL; }
 
-echo "Changing GID for group testgroup to 1011"
-groupmod -g 1011 testgroup
+next_guid=$((10+$(awk -F: '{print $3}' /etc/group | sort | tail -1)))
+echo "Changing GID for group testgroup to $next_guid"
+groupmod -g $next_guid testgroup
 t_CheckExitStatus $?

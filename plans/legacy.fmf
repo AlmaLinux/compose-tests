@@ -22,3 +22,5 @@ prepare:
       - bind-utils
 execute:
     how: tmt
+report:
+    how: html
