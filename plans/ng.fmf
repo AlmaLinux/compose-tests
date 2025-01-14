@@ -5,3 +5,5 @@ discover:
     exclude: /legacy
 execute:
     how: tmt
+report:
+    how: html
