@@ -198,7 +198,7 @@ jobs:
             ;;
           *)
             sudo dnf -y install epel-release
-            sudo dnf install -y --enablerepo=${enable_repo,,} tmt
+            sudo dnf install -y --enablerepo=${enable_repo,,} tmt tmt-report-html
             ;;
         esac
 
