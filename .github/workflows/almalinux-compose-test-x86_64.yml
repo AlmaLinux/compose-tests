@@ -248,7 +248,7 @@ jobs:
             ;;
           *)
             sudo vagrant ssh almalinux -c "sudo dnf -y install epel-release"
-            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo=${enable_repo,,} tmt"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo=${enable_repo,,} tmt tmt-report-html"
             ;;
         esac
 
