@@ -14,4 +14,3 @@ else
   t_Log "previous versions than CentOS 7 - or not x86_64 arch - aren't using secureboot ... skipping"
   exit 0
 fi
-
