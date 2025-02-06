@@ -266,7 +266,7 @@ case $os_id in
         old_almalinux_sb_key='AlmaLinux OS Foundation'
         new_almalinux_sb_key='AlmaLinux Secure Boot Signing'
         grub_sb_token="$new_almalinux_sb_key|$old_almalinux_sb_key"
-        kernel_sb_token=$new_almalinux_sb_key
+        kernel_sb_token="$new_almalinux_sb_key|$old_almalinux_sb_key"
         key_template="AlmaLinux %s signing key"
         kmod_sb_key="63:88:9E:6C:FB:6E:4F:73:8A:47:63:3F:8D:66:56:13"
         firefox_start_page="almalinux.org"
