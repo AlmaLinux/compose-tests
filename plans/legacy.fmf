@@ -8,15 +8,6 @@ environment:
     kernel_sb_token: "CentOS Secure Boot Signing 201"
     key_template: 'CentOS \(Linux \)\?%s signing key'
     firefox_start_page: "https://centos.org/"
-adjust:
-    when: distro == centos-stream-10
-    environment:
-        YUMDEBUG: 0
-        vendor: "centos"
-        os_name: "CentOS"
-        grub_sb_token: "Red\ Hat\ Test\ Certificate"
-        kernel_sb_token: "Red\ Hat\ Test\ Certificate"
-        key_template: "Red\ Hat\ Test\ Certificate"
 discover:
     how: fmf
     test:
