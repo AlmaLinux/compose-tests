@@ -37,8 +37,8 @@ t_Log "Running $0 - osbuild: depsolve the '$blueprint' blueprint"
 composer-cli blueprints depsolve $blueprint || t_CheckExitStatus $?
 
 t_Log "Running $0 - osbuild: start building '$blueprint' blueprint"
-compose_id=$( composer-cli compose start $blueprint $image_type 2>/dev/null \
-| egrep 'Compose|added|queue' \
+compose_id=$( composer-cli compose start $blueprint $image_type \
+| grep -E 'Compose|added|queue' \
 | sed 's/^Compose \+\(.\+\) \+added \+to \+the \+queue$/\1/g' )
 
 test -n "$compose_id" || t_CheckExitStatus $?
