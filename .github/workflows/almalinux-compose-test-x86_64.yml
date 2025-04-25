@@ -234,6 +234,12 @@ jobs:
         enable_repo=${{ env.dnf_crb_repo }}
         case ${{ matrix.variant }} in
           10-kitten*)
+            # TODO: epel-release package should be installed for v2 when available
+            if [ "${{ env.basearch }}" = "x86_64_v2" ]; then
+              sudo vagrant ssh almalinux -c "sudo dnf config-manager --add-repo https://build.almalinux.org/pulp/content/copr/eabdullin1-epel-al-almalinux-kitten-10-${{ env.basearch }}-dr/"
+            else
+              sudo vagrant ssh almalinux -c "sudo dnf -y install epel-release"
+            fi
             sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel"
             sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='${enable_repo,,} devel' python3-pip beakerlib initscripts-service"
             sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
