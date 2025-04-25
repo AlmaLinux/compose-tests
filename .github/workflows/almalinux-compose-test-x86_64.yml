@@ -237,6 +237,7 @@ jobs:
             # TODO: epel-release package should be installed for v2 when available
             if [ "${{ env.basearch }}" = "x86_64_v2" ]; then
               sudo vagrant ssh almalinux -c "sudo dnf config-manager --add-repo https://build.almalinux.org/pulp/content/copr/eabdullin1-epel-al-almalinux-kitten-10-${{ env.basearch }}-dr/"
+              sudo vagrant ssh almalinux -c "sudo rpm --import https://repo.almalinux.org/almalinux-kitten/RPM-GPG-KEY-AlmaLinux-10-EPEL-AltArch"
             else
               sudo vagrant ssh almalinux -c "sudo dnf -y install epel-release"
             fi
