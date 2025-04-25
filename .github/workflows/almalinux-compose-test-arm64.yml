@@ -183,6 +183,7 @@ jobs:
         enable_repo=${{ env.dnf_crb_repo }}
         case ${{ inputs.version_major }} in
           10-kitten)
+            sudo dnf -y install epel-release
             sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel
             sudo dnf install -y --enablerepo="${enable_repo,,} devel" python3-pip beakerlib initscripts-service
             sudo sh -c 'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
