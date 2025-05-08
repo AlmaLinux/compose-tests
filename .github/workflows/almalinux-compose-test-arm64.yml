@@ -249,9 +249,8 @@ jobs:
       if: job.steps.run-tests.status == failure()
       run: |
         # Install 'yq'
-        sudo dnf -y -q install wget
-        wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64 -O /usr/bin/yq
-        chmod +x /usr/bin/yq
+        sudo curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
+        sudo chmod +x /usr/bin/yq
 
         # Create failed tests list
         yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml \
