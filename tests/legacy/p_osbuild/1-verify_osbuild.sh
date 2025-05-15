@@ -13,7 +13,7 @@ systemctl enable --now osbuild-composer.socket
 
 if [ "x${pungi_repository}" = "xtrue" ]; then
     t_Log "Running $0 - osbuild: Change 'baseurl' for native BaseOS and AppStream repositories into pungi one"
-    latest_result="latest_result"
+    latest_result="latest_result_almalinux"
     json_file=almalinux-${release_ver}.json
     if [ "$centos_ver" = "$release_ver" ]; then
         # Assume Kitten
