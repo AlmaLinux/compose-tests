@@ -70,7 +70,7 @@ jobs:
     - name: Prepare stuff
       run: |
         # Environment variables
-        pungi_latest_result=latest_result
+        pungi_latest_result=latest_result_almalinux
         pulp_root=${{ inputs.version_major }}
         tmt_options=
         rpm_gpg_key=/etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux
@@ -92,7 +92,7 @@ jobs:
           10-kitten)
             release_version=10
             pulp_root=kitten-10
-            pungi_latest_result="${pungi_latest_result}_almalinux-kitten"
+            pungi_latest_result="${pungi_latest_result}-kitten"
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
             ;;
