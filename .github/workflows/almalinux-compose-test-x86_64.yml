@@ -50,6 +50,7 @@ jobs:
         vm_box=almalinux/${{ inputs.version_major }}
         release_version=${{ inputs.version_major }}
         dnf_crb_repo='CRB'
+        dnf_extras_repo='extras'
         basearch=x86_64
 
         case ${{ matrix.variant }} in
@@ -78,6 +79,7 @@ jobs:
             pungi_latest_result="${pungi_latest_result}-kitten"
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
+            dnf_extras_repo='extras-common'
             ;;
           10-kitten-x86_64_v2)
             vm_box=almalinux/10-kitten-x86_64_v2
@@ -87,6 +89,7 @@ jobs:
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
             basearch=x86_64_v2
+            dnf_extras_repo='extras-common'
             ;;
         esac
         # Release major version
@@ -108,6 +111,7 @@ jobs:
         fi
         echo "dnf_crb_repo=${dnf_crb_repo}" >> $GITHUB_ENV
         echo "pulp_crb_repo=${pulp_crb_repo}" >> $GITHUB_ENV
+        echo "dnf_extras_repo=${dnf_extras_repo}" >> $GITHUB_ENV
 
         # TMT extra options
         echo "tmt_options=${tmt_options}" >> $GITHUB_ENV
@@ -183,6 +187,12 @@ jobs:
         enabled = 1
         name = almalinux-${{ env.release_version }}-${{ env.dnf_crb_repo }}-pungi
         gpgkey=file://${{ env.rpm_gpg_key }}
+
+        [almalinux-${{ env.release_version }}-${{ env.dnf_extras_repo }}-pungi]
+        baseurl = http://x86-64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/${{ env.basearch }}/${{ env.pungi_latest_result }}/compose/${{ env.dnf_extras_repo }}/${{ env.basearch }}/os/
+        enabled = 1
+        name = almalinux-${{ env.release_version }}-${{ env.dnf_extras_repo }}-pungi
+        gpgkey=file://${{ env.rpm_gpg_key }}
         EOF
 
     - name: Create AlmaLinux pulp repository
@@ -205,6 +215,12 @@ jobs:
         baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-${{ env.basearch }}/
         enabled = 1
         name = almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-pulp
+        gpgkey=file://${{ env.rpm_gpg_key }}
+
+        [almalinux-${{ env.pulp_root }}-${{ env.dnf_extras_repo }}-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-${{ env.dnf_extras_repo }}-${{ env.basearch }}/
+        enabled = 1
+        name = almalinux-${{ env.pulp_root }}-${{ env.dnf_extras_repo }}-pulp
         gpgkey=file://${{ env.rpm_gpg_key }}
         EOF
 
@@ -232,26 +248,36 @@ jobs:
     - name: Prepare test infrastructure
       run: |
         enable_repo=${{ env.dnf_crb_repo }}
+        dnf_opts="--enablerepo=${enable_repo,,}"
+        if [ "${{ inputs.pungi_repository }}" = "true" ]; then
+          # Disable all enabled system repositories
+          for enabled_repo in $(sudo vagrant ssh almalinux -c "sudo dnf repolist --enabled" 2>/dev/null | awk '/repo id/ {A=1; next} A {print $1}' | grep -v pungi); do
+            sudo vagrant ssh almalinux -c "sudo dnf config-manager --set-disabled ${enabled_repo}"
+          done
+          dnf_opts=
+        fi
         case ${{ matrix.variant }} in
           10-kitten*)
-            sudo vagrant ssh almalinux -c "sudo dnf -y install epel-release"
-            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel"
-            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='${enable_repo,,} devel' python3-pip beakerlib initscripts-service"
+            [ "${{ inputs.pungi_repository }}" != "true" ] && \
+              dnf_opts="${dnf_opts} --enablerepo=devel"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} epel-release almalinux-kitten-release-devel"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service"
             sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
             ;;
           10*)
             [ "${{ matrix.variant }}" = "10" ] && basearch=x86_64 || basearch=x86_64_v2
             sudo vagrant ssh almalinux -c "sudo dnf config-manager --add-repo https://build.almalinux.org/pulp/content/builds/AlmaLinux-Kitten-10-${basearch}-20670-br/"
-            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo='${enable_repo,,} extras' python3-pip beakerlib initscripts-service"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} epel-release"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service"
             sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
             ;;
           9)
-            sudo vagrant ssh almalinux -c "sudo dnf -y install epel-release"
-            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo=${enable_repo,,} tmt initscripts-service"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} epel-release"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} tmt initscripts-service"
             ;;
           *)
-            sudo vagrant ssh almalinux -c "sudo dnf -y install epel-release"
-            sudo vagrant ssh almalinux -c "sudo dnf install -y --enablerepo=${enable_repo,,} tmt tmt-report-html"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} epel-release"
+            sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} tmt tmt-report-html"
             ;;
         esac
 
