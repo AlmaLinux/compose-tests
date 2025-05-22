@@ -76,6 +76,7 @@ jobs:
         rpm_gpg_key=/etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux
         release_version=${{ inputs.version_major }}
         dnf_crb_repo='CRB'
+        dnf_extras_repo='extras'
 
         case ${{ inputs.version_major }} in
           8)
@@ -95,6 +96,7 @@ jobs:
             pungi_latest_result="${pungi_latest_result}-kitten"
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
+            dnf_extras_repo='extras-common'
             ;;
         esac
         # Release major version
@@ -113,6 +115,7 @@ jobs:
         fi
         echo "dnf_crb_repo=${dnf_crb_repo}" >> $GITHUB_ENV
         echo "pulp_crb_repo=${pulp_crb_repo}" >> $GITHUB_ENV
+        echo "dnf_extras_repo=${dnf_extras_repo}" >> $GITHUB_ENV
 
         # TMT extra options
         echo "tmt_options=${tmt_options}" >> $GITHUB_ENV
@@ -144,6 +147,12 @@ jobs:
         enabled = 1
         name = almalinux-${{ env.release_version }}-${{ env.dnf_crb_repo }}-pungi
         gpgkey=file://${{ env.rpm_gpg_key }}
+
+        [almalinux-${{ env.release_version }}-${{ env.dnf_extras_repo }}-pungi]
+        baseurl = http://aarch64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/$arch/${{ env.pungi_latest_result }}/compose/${{ env.dnf_extras_repo }}/$arch/os/
+        enabled = 1
+        name = almalinux-${{ env.release_version }}-${{ env.dnf_extras_repo }}-pungi
+        gpgkey=file://${{ env.rpm_gpg_key }}
         EOF
 
     - name: Create AlmaLinux pulp repository
@@ -167,6 +176,12 @@ jobs:
         enabled = 1
         name = almalinux-${{ env.pulp_root }}-${{ env.pulp_crb_repo }}-pulp
         gpgkey=file://${{ env.rpm_gpg_key }}
+
+        [almalinux-${{ env.pulp_root }}-${{ env.dnf_extras_repo }}-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-${{ env.dnf_extras_repo }}-$arch/
+        enabled = 1
+        name = almalinux-${{ env.pulp_root }}-${{ env.dnf_extras_repo }}-pulp
+        gpgkey=file://${{ env.rpm_gpg_key }}
         EOF
 
     - name: Update the system
@@ -181,25 +196,35 @@ jobs:
     - name: Prepare test infrastructure
       run: |
         enable_repo=${{ env.dnf_crb_repo }}
+        dnf_opts="--enablerepo=${enable_repo,,}"
+        if [ "${{ inputs.pungi_repository }}" = "true" ]; then
+          # Disable all enabled system repositories
+          for enabled_repo in $(sudo dnf repolist --enabled | awk '/repo id/ {A=1; next} A {print $1}' | grep -v pungi); do
+            sudo dnf config-manager --set-disabled ${enabled_repo}
+          done
+          dnf_opts=
+        fi
         case ${{ inputs.version_major }} in
           10-kitten)
-            sudo dnf -y install epel-release
-            sudo dnf install -y --enablerepo='extras-common' almalinux-kitten-release-devel
-            sudo dnf install -y --enablerepo="${enable_repo,,} devel" python3-pip beakerlib initscripts-service
+            [ "${{ inputs.pungi_repository }}" != "true" ] && \
+              dnf_opts="${dnf_opts} --enablerepo=devel"
+            sudo dnf install -y ${dnf_opts} epel-release almalinux-kitten-release-devel
+            sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service
             sudo sh -c 'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
             ;;
           10)
             sudo dnf config-manager --add-repo https://build.almalinux.org/pulp/content/builds/AlmaLinux-Kitten-10-aarch64-20670-br/
-            sudo dnf install -y --enablerepo="${enable_repo,,} extras" python3-pip beakerlib initscripts-service
+            sudo dnf install -y ${dnf_opts} epel-release
+            sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service
             sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
             ;;
           9)
-            sudo dnf -y install epel-release
-            sudo dnf install -y --enablerepo=${enable_repo,,} tmt initscripts-service
+            sudo dnf install -y ${dnf_opts} epel-release
+            sudo dnf install -y ${dnf_opts} tmt initscripts-service
             ;;
           *)
-            sudo dnf -y install epel-release
-            sudo dnf install -y --enablerepo=${enable_repo,,} tmt tmt-report-html
+            sudo dnf install -y ${dnf_opts} epel-release
+            sudo dnf install -y ${dnf_opts} tmt tmt-report-html
             ;;
         esac
 
