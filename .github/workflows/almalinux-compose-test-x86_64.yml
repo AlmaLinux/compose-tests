@@ -256,7 +256,7 @@ jobs:
         dnf_opts="--enablerepo=${enable_repo,,}"
         if [ "${{ inputs.disable_default_repos }}" = "true" ]; then
           # Disable all enabled system repositories
-          for enabled_repo in $(sudo vagrant ssh almalinux -c "sudo dnf repolist --enabled" 2>/dev/null | awk '/repo id/ {A=1; next} A {print $1}' | grep -v pungi); do
+          for enabled_repo in $(sudo vagrant ssh almalinux -c "sudo dnf repolist --enabled" 2>/dev/null | awk '/repo id/ {A=1; next} A {print $1}' | grep -v -E 'pungi|pulp'); do
             echo "[Debug] Disable '${enabled_repo}' repository"
             sudo vagrant ssh almalinux -c "sudo dnf config-manager --set-disabled ${enabled_repo}"
           done
