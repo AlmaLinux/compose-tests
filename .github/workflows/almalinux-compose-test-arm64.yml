@@ -23,6 +23,10 @@ on:
           description: 'Add pulp repositories'
           type: boolean
 
+        disable_default_repos:
+          description: 'Disable system default repositories'
+          type: boolean
+
         rerun_failed:
           description: 'Re-run failed tests'
           type: boolean
@@ -197,7 +201,7 @@ jobs:
       run: |
         enable_repo=${{ env.dnf_crb_repo }}
         dnf_opts="--enablerepo=${enable_repo,,}"
-        if [ "${{ inputs.pungi_repository }}" = "true" ]; then
+        if [ "${{ inputs.disable_default_repos }}" = "true" ]; then
           # Disable all enabled system repositories
           for enabled_repo in $(sudo dnf repolist --enabled | awk '/repo id/ {A=1; next} A {print $1}' | grep -v pungi); do
             sudo dnf config-manager --set-disabled ${enabled_repo}
@@ -206,7 +210,7 @@ jobs:
         fi
         case ${{ inputs.version_major }} in
           10-kitten)
-            [ "${{ inputs.pungi_repository }}" != "true" ] && \
+            [ "${{ inputs.disable_default_repos }}" != "true" ] && \
               dnf_opts="${dnf_opts} --enablerepo=devel"
             sudo dnf install -y ${dnf_opts} epel-release almalinux-kitten-release-devel
             sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service
@@ -333,7 +337,7 @@ jobs:
           core.summary
               .addHeading('${{ env.system_release }}', '4')
               .addHeading('Used repositories:', '4')
-              .addList(['pulp - ${{ inputs.pulp_repository && '✅' || '❌'}}','pungi - ${{ inputs.pungi_repository && '✅' || '❌'}}'], true)
+              .addList(['pulp - ${{ inputs.pulp_repository && '✅' || '❌'}}','pungi - ${{ inputs.pungi_repository && '✅' || '❌'}}','default repos - ${{ inputs.disable_default_repos && '❌' || '✅'}}'], true)
               .addHeading('${{ env.summary_header }}', '4')
               .addList([${{ env.rerun_results }}], true)
               .write()
