@@ -26,6 +26,7 @@ on:
         disable_default_repos:
           description: 'Disable system default repositories'
           type: boolean
+          default: false
 
         rerun_failed:
           description: 'Re-run failed tests'
@@ -204,15 +205,16 @@ jobs:
         if [ "${{ inputs.disable_default_repos }}" = "true" ]; then
           # Disable all enabled system repositories
           for enabled_repo in $(sudo dnf repolist --enabled | awk '/repo id/ {A=1; next} A {print $1}' | grep -v pungi); do
+            echo "[Debug] Disable '${enabled_repo}' repository"
             sudo dnf config-manager --set-disabled ${enabled_repo}
           done
           dnf_opts=
         fi
         case ${{ inputs.version_major }} in
           10-kitten)
-            [ "${{ inputs.disable_default_repos }}" != "true" ] && \
-              dnf_opts="${dnf_opts} --enablerepo=devel"
             sudo dnf install -y ${dnf_opts} epel-release almalinux-kitten-release-devel
+            [ "${{ inputs.disable_default_repos }}" = "false" ] && \
+              dnf_opts="${dnf_opts} --enablerepo=devel"
             sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service
             sudo sh -c 'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
             ;;
