@@ -67,12 +67,11 @@ jobs:
             rpm_gpg_key="${rpm_gpg_key}-9"
             ;;
           10)
-            vm_box=lkhn/almalinux-10                # TODO: use official image when available
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
             ;;
           10-x86_64_v2)
-            vm_box=yuravk/almalinux-10-x86-64-v2    # TODO: use official image when available
+            vm_box=almalinux/10-x86_64_v2
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
             basearch=x86_64_v2
