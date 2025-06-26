@@ -231,7 +231,9 @@ jobs:
     - name: Create 'yq' script to get failed tests
       run: |
         cat <<'EOF'>./yq.sh
-        yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml > ${{ env.tmt_run_dir }}/tests_failed.txt
+        yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' \
+          $(sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name results.yaml | xargs) \
+          > ${{ env.tmt_run_dir }}/tests_failed.txt
         echo "[Debug] failed tests:"
         echo "$(cat ${{ env.tmt_run_dir }}/tests_failed.txt)"
         EOF
@@ -334,6 +336,7 @@ jobs:
         sudo vagrant ssh almalinux -c 'sudo dnf -y -q install wget'
         sudo vagrant ssh almalinux -c 'sudo wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq'
         sudo vagrant ssh almalinux -c 'sudo chmod +x /usr/bin/yq'
+        sudo vagrant ssh almalinux -c 'sudo /usr/bin/yq --version'
 
         # Create failed tests list
         sudo vagrant ssh almalinux -c "sudo sh -c 'chmod +x /vagrant/yq.sh; /vagrant/yq.sh'"

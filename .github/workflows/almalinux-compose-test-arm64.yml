@@ -280,11 +280,26 @@ jobs:
       if: job.steps.run-tests.status == failure()
       run: |
         # Install 'yq'
-        sudo curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
-        sudo chmod +x /usr/bin/yq
+        yq_ready=false
+        for i in $(seq 1 5); do
+          if sudo curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64 && \
+            sudo chmod +x /usr/bin/yq && \
+            sudo /usr/bin/yq --version; then
+            yq_ready=true
+            break # Exit the loop on success
+          else
+            if [[ "${i}" -lt 5 ]]; then
+              echo "Retrying in 5 seconds..."
+              sleep 5
+            fi
+          fi
+        done
+
+        [[ "${yq_ready}" = false ]] && echo "[Debug] yq isn't installed" && false
 
         # Create failed tests list
-        yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml \
+        yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' \
+          $(sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name results.yaml | xargs) \
           > ${{ env.tmt_run_dir }}/tests_failed.txt
 
         echo "[Debug] failed tests:"
