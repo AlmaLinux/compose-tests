@@ -300,9 +300,9 @@ jobs:
 
     - name: Print tests results
       run: |
-        sudo vagrant ssh almalinux -c "sudo cat ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml"
-        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{github.action_path}}/legacy.results.yaml
-        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml ${{github.action_path}}/ng.results.yaml
+        sudo vagrant ssh almalinux -c "sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name results.yaml -exec cat {} \;"
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{github.action_path}}/legacy.results.yaml || true
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml ${{github.action_path}}/ng.results.yaml || true
 
     - name: Print tests log
       run: |

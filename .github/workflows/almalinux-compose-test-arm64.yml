@@ -42,6 +42,28 @@ jobs:
       actions: write
     steps:
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Get AlmaLinux ${{ inputs.version_major }} aarch64 AMI most recent ID
+        run: |
+          os_version="${{ inputs.version_major }}"
+          if [[ "${os_version}" == "10-kitten" ]]; then
+            os_version="Kitten 10"
+          fi
+          AMI_ID=$(aws ec2 describe-images --owners 764336703387 --query "Images | max_by(@, &CreationDate) | ImageId" --filters "Name=name,Values=AlmaLinux OS ${os_version}*aarch64" --region ${{ secrets.AWS_REGION }} --output text)
+          if [[ "${AMI_ID}" == "" || "${AMI_ID}" == "None" ]]; then
+            echo "[Error] Failed to get AMI ID for AlmaLinux ${os_version} aarch64."
+            exit 1
+          else
+            echo "[Debug] AMI ID: '${AMI_ID}'"
+          fi
+          echo "AMI_ID=${AMI_ID}" >> $GITHUB_ENV
+
       - name: Setup and start runner
         id: start-ec2-runner
         uses: NextChapterSoftware/ec2-action-builder@v1.5
@@ -50,14 +72,14 @@ jobs:
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws_region: ${{ secrets.AWS_REGION }}
-          ec2_ami_id: ${{ secrets[format('EC2_AMI_ID_AL{0}',  ( inputs.version_major == '10-kitten' && '10_KITTEN' || inputs.version_major))] }}
+          ec2_ami_id: ${{ env.AMI_ID }}
           ec2_subnet_id: ${{ secrets.EC2_SUBNET_ID}}
           ec2_security_group_id: ${{ secrets.EC2_SECURITY_GROUP_ID }}
 
-          ec2_instance_type: t4g.medium       # 2 vCPU and 4 GiM Memory are enough to run tests
+          ec2_instance_type: t4g.large       # 2 vCPU and 8 GiM Memory are enough to run tests
           ec2_root_disk_size_gb: "16"         # override default size which is too small for actions and tests stuff
           ec2_root_disk_ebs_class: "gp3"      # use faster and cheeper storage instead of default 'gp2'
-          ec2_instance_ttl: 60                # Optional (default is 60 minutes)
+          ec2_instance_ttl: 90                # Optional (default is 60 minutes)
           ec2_spot_instance_strategy: None    # Other options are: SpotOnly, BestEffort, MaxPerformance
           ec2_instance_tags: >                # Required for IAM role resource permission scoping
             [
@@ -244,10 +266,9 @@ jobs:
     - name: ${{ inputs.version_major }} tests results
       run: |
         #[Debug]
-        sudo cat ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml
+        sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name "results.yaml" -exec cat {} \;
 
-        sudo /bin/cp -av ${{ env.tmt_run_dir }}/plans/legacy/execute/results.yaml ${{github.action_path}}/legacy.results.yaml
-        sudo /bin/cp -av ${{ env.tmt_run_dir }}/plans/ng/execute/results.yaml ${{github.action_path}}/ng.results.yaml
+        sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name "results.yaml" -exec sh -c 'cp -av "$1" "${{ github.action_path }}/$(basename "$(dirname "$(dirname $1)")").results.yaml"' _ {} \;
 
     - name: ${{ inputs.version_major }} tests log
       run: |
@@ -280,22 +301,9 @@ jobs:
       if: job.steps.run-tests.status == failure()
       run: |
         # Install 'yq'
-        yq_ready=false
-        for i in $(seq 1 5); do
-          if sudo curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64 && \
-            sudo chmod +x /usr/bin/yq && \
-            sudo /usr/bin/yq --version; then
-            yq_ready=true
-            break # Exit the loop on success
-          else
-            if [[ "${i}" -lt 5 ]]; then
-              echo "Retrying in 5 seconds..."
-              sleep 5
-            fi
-          fi
-        done
-
-        [[ "${yq_ready}" = false ]] && echo "[Debug] yq isn't installed" && false
+        sudo curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
+        sudo chmod +x /usr/bin/yq
+        sudo /usr/bin/yq --version
 
         # Create failed tests list
         yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' \
@@ -316,7 +324,7 @@ jobs:
         for test_failed in $(cat ${{ env.tmt_run_dir }}/tests_failed.txt | xargs); do
           echo "[Debug] Re-run '${test_failed}'"
 
-          # Include failed test name into resiults summary
+          # Include failed test name into results summary
           test_result="${test_failed}"
 
           # Re-run specific failed test
