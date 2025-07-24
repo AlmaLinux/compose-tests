@@ -76,10 +76,10 @@ jobs:
           ec2_subnet_id: ${{ secrets.EC2_SUBNET_ID}}
           ec2_security_group_id: ${{ secrets.EC2_SECURITY_GROUP_ID }}
 
-          ec2_instance_type: t4g.large       # 2 vCPU and 8 GiM Memory are enough to run tests
+          ec2_instance_type: t4g.large        # 2 vCPU and 8 GiM Memory are enough to run tests
           ec2_root_disk_size_gb: "16"         # override default size which is too small for actions and tests stuff
           ec2_root_disk_ebs_class: "gp3"      # use faster and cheeper storage instead of default 'gp2'
-          ec2_instance_ttl: 90                # Optional (default is 60 minutes)
+          ec2_instance_ttl: 120               # Optional (default is 60 minutes)
           ec2_spot_instance_strategy: None    # Other options are: SpotOnly, BestEffort, MaxPerformance
           ec2_instance_tags: >                # Required for IAM role resource permission scoping
             [
