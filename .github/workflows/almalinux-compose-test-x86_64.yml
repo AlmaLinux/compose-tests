@@ -272,8 +272,6 @@ jobs:
             sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
             ;;
           10*)
-            [ "${{ matrix.variant }}" = "10" ] && basearch=x86_64 || basearch=x86_64_v2
-            sudo vagrant ssh almalinux -c "sudo dnf config-manager --add-repo https://build.almalinux.org/pulp/content/builds/AlmaLinux-Kitten-10-${basearch}-20670-br/"
             sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} epel-release"
             sudo vagrant ssh almalinux -c "sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service"
             sudo vagrant ssh almalinux -c "sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'"
