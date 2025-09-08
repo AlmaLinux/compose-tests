@@ -22,6 +22,7 @@ on:
         pulp_repository:
           description: 'Add pulp repositories'
           type: boolean
+          default: true
 
         disable_default_repos:
           description: 'Disable system default repositories'
