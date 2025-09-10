@@ -225,7 +225,7 @@ jobs:
         EOF
 
     - name: Create AlmaLinux nvidia pulp repository
-      if: env.nvidia && inputs.pulp_repository
+      if: env.nvidia == 'true' && inputs.pulp_repository
       run: |
         cat <<'EOF'>/etc/yum.repos.d/almalinux-nvidia-pulp.repo
         [almalinux-${{ env.pulp_root }}-nvidia-pulp]
