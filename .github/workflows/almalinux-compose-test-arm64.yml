@@ -154,6 +154,18 @@ jobs:
         # TMT tests run directory
         echo "tmt_run_dir=/var/tmp/tmt/run-001" >> $GITHUB_ENV
 
+        # For nvidia drivers tests
+        case ${{ inputs.version_major }} in
+          8)
+            nvidia=false
+            ;;
+          *)
+            nvidia=true
+            ;;
+        esac
+        echo "nvidia=${nvidia}" >> $GITHUB_ENV
+
+
     - name: Create AlmaLinux pungi repository
       if: inputs.pungi_repository
       run: |
@@ -209,6 +221,17 @@ jobs:
         baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-${{ env.dnf_extras_repo }}-$arch/
         enabled = 1
         name = almalinux-${{ env.pulp_root }}-${{ env.dnf_extras_repo }}-pulp
+        gpgkey=file://${{ env.rpm_gpg_key }}
+        EOF
+
+    - name: Create AlmaLinux nvidia pulp repository
+      if: env.nvidia
+      run: |
+        cat <<'EOF'>/etc/yum.repos.d/almalinux-nvidia-pulp.repo
+        [almalinux-${{ env.pulp_root }}-nvidia-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-nvidia-$arch/
+        enabled = 1
+        name = almalinux-${{ env.pulp_root }}-nvidia-pulp
         gpgkey=file://${{ env.rpm_gpg_key }}
         EOF
 
