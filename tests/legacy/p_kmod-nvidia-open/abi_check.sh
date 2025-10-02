@@ -6,14 +6,9 @@ arch=$(uname -m)
 
 SKIP=1
 
-if [[ "$centos_ver" -eq 9 && ("$arch" == "x86_64" || "$arch" == "aarch64") ]]; then
+if [[ "$centos_ver" -ge 9 && ("$arch" == "x86_64" || "$arch" == "aarch64") ]]; then
   SKIP=0
 fi
-
-if [[ "$centos_ver" -eq 10 && "$arch" != "x86_64" ]]; then
-  SKIP=0
-fi
-
 
 if [[ $SKIP -eq 0 ]]; then
     t_InstallPackage almalinux-release-nvidia-driver kernel kernel-core kernel-modules kernel-modules-core
@@ -44,5 +39,6 @@ if [[ $SKIP -eq 0 ]]; then
         exit 0
     fi
 else
+  t_Log "SKIP - ${centos_ver} on ${arch} is not supported"
   exit 0
 fi
