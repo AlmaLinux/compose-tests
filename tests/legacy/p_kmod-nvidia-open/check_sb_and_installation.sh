@@ -29,6 +29,5 @@ if [[ $SKIP -eq 0 ]]; then
     rpm -qa | grep kmod-nvidia-open
     t_CheckExitStatus $?
 else
-
   exit 0
 fi
