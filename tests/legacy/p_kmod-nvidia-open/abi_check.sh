@@ -11,7 +11,7 @@ if [[ "$centos_ver" -ge 9 && ("$arch" == "x86_64" || "$arch" == "aarch64") ]]; t
 fi
 
 if [[ $SKIP -eq 0 ]]; then
-    t_InstallPackage almalinux-release-nvidia-driver kernel kernel-core kernel-modules kernel-modules-core
+    t_InstallPackage almalinux-release-nvidia-driver kernel kernel-core kernel-modules kernel-modules-core kernel-devel
     t_InstallPackage kmod-nvidia-open
     t_InstallPackage nvidia-open-kmod
     latest_kernel=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core | sort -V | tail -n 1)
