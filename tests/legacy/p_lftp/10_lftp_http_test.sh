@@ -12,7 +12,7 @@ if [ "$CONTAINERTEST" -eq "1" ]; then
     exit 0
 fi
 
-URL="http://mirror.centos.org/"
+URL="http://mirror.stream.centos.org/"
 
 CHECK_FOR="UTC"
 FILE="timestamp.txt"
