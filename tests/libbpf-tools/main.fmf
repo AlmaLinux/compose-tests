@@ -4,5 +4,5 @@ test: ./test.sh
 framework: beakerlib
 enabled: true
 adjust:
-  when: distro == centos-7 or distro == centos-stream-8 or distro == centos-stream-10
+  when: distro == centos-7 or distro == centos-stream-8
   enabled: false
