@@ -76,6 +76,7 @@ jobs:
             tmt_options='--feeling-safe'
             rpm_gpg_key="${rpm_gpg_key}-10"
             basearch=x86_64_v2
+            vagrant_cpu_model="Nehalem"
             ;;
           10-kitten)
             vm_box=almalinux/10-kitten
@@ -95,6 +96,7 @@ jobs:
             rpm_gpg_key="${rpm_gpg_key}-10"
             basearch=x86_64_v2
             dnf_extras_repo='extras-common'
+            vagrant_cpu_model="Nehalem"
             ;;
         esac
         # Release major version
@@ -127,6 +129,7 @@ jobs:
         # Use proper Vagrantfile and set ENV variable of config.vm.box
         cp -av ci/Vagrant/Vagrantfile ./
         echo vm_box=${vm_box} > .env
+        echo vagrant_cpu_model=${vagrant_cpu_model} >> .env
 
         # TMT tests run directory
         echo "tmt_run_dir=/var/tmp/tmt/run-001" >> $GITHUB_ENV
