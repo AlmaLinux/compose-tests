@@ -1,0 +1,3 @@
+summary: golang test set
+description: golang compilation and execution test
+test: ./test.sh
