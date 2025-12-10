@@ -129,7 +129,9 @@ jobs:
         # Use proper Vagrantfile and set ENV variable of config.vm.box
         cp -av ci/Vagrant/Vagrantfile ./
         echo vm_box=${vm_box} > .env
-        echo vagrant_cpu_model=${vagrant_cpu_model} >> .env
+        if [ -n "${vagrant_cpu_model:-}" ]; then
+          echo "vagrant_cpu_model=${vagrant_cpu_model}" >> .env
+        fi
 
         # TMT tests run directory
         echo "tmt_run_dir=/var/tmp/tmt/run-001" >> $GITHUB_ENV
