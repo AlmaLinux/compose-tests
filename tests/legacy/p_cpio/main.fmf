@@ -1,3 +1,0 @@
-summary: imported p_cpio test set
-description: p_cpio imported as-is
-test: ./test.sh

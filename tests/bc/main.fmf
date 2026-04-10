@@ -1,0 +1,5 @@
+summary: bc smoke tests
+description: Verify bc works as expected
+test: ./test.sh
+framework: beakerlib
+require: [bc]
