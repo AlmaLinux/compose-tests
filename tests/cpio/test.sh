@@ -18,9 +18,7 @@ rlJournalStart
     rlPhaseEnd
 
     rlPhaseStartTest "Basic copy out test"
-    rlRun pushd data/
     rlRun "ls | cpio -o > $OUTDIR/cpio.out" 0 "Creating cpio archive from current directory"
-    rlRun popd
     rlAssertExists "$OUTDIR/cpio.out"
     rlPhaseEnd
 

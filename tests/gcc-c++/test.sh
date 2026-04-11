@@ -1,7 +1,7 @@
 #!/bin/bash
 . /usr/share/beakerlib/beakerlib.sh || exit 1
 
-FILE=$(mktemp)
+FILE=$(mktemp).cpp
 EXE=$(mktemp)
 
 rlJournalStart

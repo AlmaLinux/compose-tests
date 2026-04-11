@@ -1,13 +1,14 @@
 #!/bin/bash
 . /usr/share/beakerlib/beakerlib.sh || exit 1
 
-FILE=$(mktemp)
+FILE=$(mktemp).c
 EXE=$(mktemp)
 
 rlJournalStart
 
     rlPhaseStartSetup
-    cat > "$FILE" <<EOF
+    rlRun "echo Generating file $FILE"
+    cat > $FILE <<EOF
 #include <stdio.h>
 int main()
 {
