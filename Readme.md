@@ -9,13 +9,13 @@ dnf install tmt+all
 Run all tests on centos-stream-9:
 
 ```sh
-tmt -vv -c distro=centos-stream-9 run -a provision --how=virtual --image centos-stream-9 prepare --how=install --package=epel-release
+tmt -vv -c distro=centos-stream-9 run -a provision --how=virtual --image centos-stream-9 prepare --how=feature --epel=enabled --order=20
 ```
 
 Run only one test on centos-stream-9:
 
 ```sh
-tmt -vv -c distro=centos-stream-9 run -a provision --how=virtual --image centos-stream-9 prepare --how=install --package=epel-release test --name /tests/sysstat
+tmt -vv -c distro=centos-stream-9 run -a provision --how=virtual --image centos-stream-9 prepare --how=feature --epel=enabled --order=20 test --name /tests/sysstat
 ```
 
 These commands will provision a local VM using libvirt from a centos-stream-9 image, copy the tests from the local directory into it, run them, and rsync the results from the VM to your machine on the directory `/var/tmp/tmt`.
@@ -55,7 +55,7 @@ find ./tests/yourtest/ -name '*.sh' | xargs -n 1 shellcheck --severity=warning -
 You should be able to run your tests individually as follow:
 
 ```sh
-tmt -vv -c distro=centos-stream-9 run -a provision --how=virtual --image centos-stream-9 prepare --how=install --package=epel-release test --name /tests/yourtest
+tmt -vv -c distro=centos-stream-9 run -a provision --how=virtual --image centos-stream-9 prepare --how=feature --epel=enabled --order 20 test --name /tests/yourtest
 ```
 
 Test outputs will be in the default temp `tmt` folder, e.g. `/var/tmp/tmt`. If you pass `-vv` to the command as in the example above, you will get the full path to the output of each test. For example:
