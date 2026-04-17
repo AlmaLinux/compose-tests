@@ -1,0 +1,5 @@
+summary: gcc smoke tests
+description: Verify gcc works as expected
+test: ./test.sh
+framework: beakerlib
+require: [gcc]

@@ -1,3 +1,0 @@
-summary: imported p_bc test set
-description: p_bc imported as-is
-test: ./test.sh
