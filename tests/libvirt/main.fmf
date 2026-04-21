@@ -5,5 +5,7 @@ framework: beakerlib
 require: [libvirt,python3-libvirt]
 enabled: true
 adjust:
-  when: arch == aarch64
-  enabled: false
+  - when: arch == aarch64
+    enabled: false
+  - when: arch == ppc64le
+    enabled: false
