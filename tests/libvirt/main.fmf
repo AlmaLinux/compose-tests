@@ -2,10 +2,4 @@ summary: libvirt smoke tests
 description: libvirt smoke tests by features
 test: ./test.sh
 framework: beakerlib
-require: [libvirt,python3-libvirt]
-enabled: true
-adjust:
-  - when: arch == aarch64
-    enabled: false
-  - when: arch == ppc64le
-    enabled: false
+require: [libvirt,python3-libvirt,libvirt-daemon-kvm]
