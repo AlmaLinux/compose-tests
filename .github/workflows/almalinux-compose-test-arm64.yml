@@ -234,7 +234,7 @@ jobs:
         baseurl = https://build.almalinux.org/pulp/content/copr/anfimovdm-almalinux-nvidia-almalinux-${{ env.pulp_root }}-$arch-dr/
         enabled = 1
         name = almalinux-${{ env.pulp_root }}-nvidia-pulp
-        gpgkey=file://${{ env.rpm_gpg_key }}
+        gpgkey=file://${{ env.rpm_gpg_key }},file:///etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA-CUDA-${{ env.release_version }}
         EOF
 
     - name: Update the system
