@@ -227,9 +227,11 @@ jobs:
     - name: Create AlmaLinux nvidia pulp repository
       if: env.nvidia == 'true' && inputs.pulp_repository
       run: |
+        # Repositories of the 'almalinux-nvidia' product
+        # https://build.almalinux.org/product/777
         cat <<'EOF'>/etc/yum.repos.d/almalinux-nvidia-pulp.repo
         [almalinux-${{ env.pulp_root }}-nvidia-pulp]
-        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-nvidia-$arch/
+        baseurl = https://build.almalinux.org/pulp/content/copr/anfimovdm-almalinux-nvidia-almalinux-${{ env.pulp_root }}-$arch-dr/
         enabled = 1
         name = almalinux-${{ env.pulp_root }}-nvidia-pulp
         gpgkey=file://${{ env.rpm_gpg_key }}
