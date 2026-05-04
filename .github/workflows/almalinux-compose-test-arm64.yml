@@ -93,7 +93,7 @@ jobs:
     needs: start-runner # required to start the main job when the runner is ready
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Prepare stuff
       run: |
@@ -307,17 +307,17 @@ jobs:
         cd ${{ env.tmt_run_dir }}/
         tar cf ${{github.action_path}}/output.tar $( find . -name output.txt ) || true
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v6
       with:
         name: Tests log
         path: ${{github.action_path}}/log.txt
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v6
       with:
         name: Tests results
         path: ${{github.action_path}}/*.results.yaml
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v6
       with:
         name: Tests output
         path: ${{github.action_path}}/output.tar
@@ -380,7 +380,7 @@ jobs:
 
     - name: Print tests summary
       if: job.steps.run-tests.status == failure() || failure()
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         result-encoding: string
         script: |

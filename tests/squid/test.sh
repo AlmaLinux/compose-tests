@@ -13,7 +13,7 @@ rlJournalStart
   rlPhaseEnd
 
   rlPhaseStartTest "Should find timestamp"
-  rlRun "squidclient -T 2 http://mirror.centos.org/ | grep -q timestamp"
+  rlRun "squidclient -T 2 http://repo.almalinux.org/almalinux/ | grep -q timestamp"
   rlPhaseEnd
 
   rlPhaseStartCleanup

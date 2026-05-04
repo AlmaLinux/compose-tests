@@ -44,7 +44,7 @@ jobs:
         variant: ${{ fromJSON(format('["{0}"]', ( inputs.version_major == '10-kitten' && '10-kitten", "10-kitten-x86_64_v2' || ( inputs.version_major == '10' && '10", "10-x86_64_v2' || inputs.version_major ) ) )) }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Prepare stuff
       run: |
@@ -342,17 +342,17 @@ jobs:
         sudo vagrant ssh almalinux -c 'sudo sh -c "cd ${{ env.tmt_run_dir }}/; tar cf output.tar plans/legacy/execute/data/guest/default-0/tests/legacy/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/*/*/output.txt"'
         sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/output.tar ${{github.action_path}}/output.tar
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v6
       with:
         name: ${{ matrix.variant }} tests log
         path: ${{github.action_path}}/log.txt
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v6
       with:
         name: ${{ matrix.variant }} tests results
         path: ${{github.action_path}}/*.results.yaml
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v6
       with:
         name: ${{ matrix.variant }} tests output
         path: ${{github.action_path}}/output.tar
@@ -412,7 +412,7 @@ jobs:
 
     - name: Print tests summary
       if: job.steps.run-tests.status == failure() || failure()
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         result-encoding: string
         script: |
