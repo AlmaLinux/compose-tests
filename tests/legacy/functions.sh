@@ -267,6 +267,7 @@ case $os_id in
         new_almalinux_sb_key='AlmaLinux Secure Boot Signing'
         grub_sb_token="$new_almalinux_sb_key|$old_almalinux_sb_key"
         kernel_sb_token="$new_almalinux_sb_key|$old_almalinux_sb_key"
+        shim_sb_token='Microsoft Windows UEFI Driver Publisher|Microsoft UEFI CA 2023'
         key_template="AlmaLinux %s signing key"
         kmod_sb_key="63:88:9E:6C:FB:6E:4F:73:8A:47:63:3F:8D:66:56:13"
         kmod_nvidia_sb_key="5D:0C:81:C5:85:98:49:95:9E:2B:3F:9D:04:FD:B7:75"
@@ -325,6 +326,7 @@ export kmod_sb_key
 export firefox_start_page
 export key_template
 export kernel_sb_token
+export shim_sb_token
 export skip_z_tests
 export skip_r_tests
 
