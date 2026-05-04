@@ -19,10 +19,9 @@ if [ "$CONTAINERTEST" -eq "1" ]; then
     exit 0
 fi
 
-# osbuild-composer ships x86_64 (v3-baseline) repo definitions only; the build
-# chroot pulls v3 glibc which aborts on a v2 host with "CPU does not support
-# x86-64-v3". Detect the v2 variant via the installed glibc arch tag.
-if [ "$(rpm -q --qf '%{ARCH}' glibc)" = "x86_64_v2" ]; then
+# The build chroot pulls v3 glibc which aborts on a v2 host with "CPU does not
+# support x86-64-v3"; OSBUILD_X86_64_V2 is exported by test.sh.
+if [ -n "$OSBUILD_X86_64_V2" ]; then
     t_Log "osbuild-composer lacks x86_64_v2 repo definitions -> SKIP"
     exit 0
 fi
