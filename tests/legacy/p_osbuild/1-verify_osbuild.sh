@@ -21,8 +21,7 @@ if [ "x${pungi_repository}" = "xtrue" ]; then
         t_Log "Running $0 - osbuild: Change 'baseurl' for native BaseOS and AppStream repositories into pungi one"
         latest_result="latest_result_almalinux"
         json_file=almalinux-${release_ver}.json
-        if [ "$centos_ver" = "$release_ver" ]; then
-            # Assume Kitten
+        if t_IsKitten; then
             latest_result="latest_result_almalinux-kitten"
             json_file=kitten-${release_ver}.json
         fi

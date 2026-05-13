@@ -132,6 +132,13 @@ function t_ReleasePkg
 }
 release_pkg=$(t_ReleasePkg)
 
+# Description: test if we are running on an AlmaLinux Kitten. Returns success (0) on Kitten, non-zero otherwise.
+# Usage:  if t_IsKitten; then ... ;  if ! t_IsKitten; then ...
+function t_IsKitten
+{
+    [[ "$release_pkg" =~ kitten ]]
+}
+
 # Description: return the distro release (returns 5 or 6 now)
 function t_DistCheck
 {
@@ -309,6 +316,7 @@ export -f t_SkipReleaseLessThan
 export -f t_SkipReleaseGreaterThan
 export -f t_GetPkgRel
 export -f t_DistCheck
+export -f t_IsKitten
 export -f t_GetPkgVer
 export -f t_GetArch
 export -f t_CheckForPort
@@ -335,7 +343,7 @@ export PASS
 readonly FAIL=1
 export FAIL
 export YUMDEBUG=1
-if [[ $release_pkg =~ "kitten" || $minor_ver = "" ]]; then
+if t_IsKitten || [ -z "$minor_ver" ]; then
     export release_ver="${centos_ver}"
 else
     export release_ver="${centos_ver}.${minor_ver}"
