@@ -25,6 +25,11 @@ Vagrant.configure("2") do |config|
         sudo cp -av /vagrant/almalinux-pulp.repo /etc/yum.repos.d/almalinux-pulp.repo || \
         true
 
+        # Put in place almalinux-testing-pulp.repo if exists
+        test -e /vagrant/almalinux-testing-pulp.repo && \
+        sudo cp -av /vagrant/almalinux-testing-pulp.repo /etc/yum.repos.d/almalinux-testing-pulp.repo || \
+        true
+
         # Put in place almalinux-nvidia-pulp.repo if exists
         test -e /vagrant/almalinux-nvidia-pulp.repo && \
         sudo cp -av /vagrant/almalinux-nvidia-pulp.repo /etc/yum.repos.d/almalinux-nvidia-pulp.repo || \
