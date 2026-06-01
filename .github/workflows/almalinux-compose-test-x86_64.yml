@@ -24,6 +24,11 @@ on:
           type: boolean
           default: true
 
+        testing_repository:
+          description: 'Add testing repository'
+          type: boolean
+          default: false
+
         disable_default_repos:
           description: 'Disable system default repositories'
           type: boolean
@@ -245,6 +250,18 @@ jobs:
         gpgkey=file://${{ env.rpm_gpg_key }}
         EOF
 
+    - name: Create AlmaLinux testing pulp repository
+      # Kitten has no testing repository, so skip it there
+      if: inputs.pulp_repository && inputs.testing_repository && !startsWith(matrix.variant, '10-kitten')
+      run: |
+        cat <<'EOF'>./almalinux-testing-pulp.repo
+        [almalinux-${{ env.pulp_root }}-testing-pulp]
+        baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-testing-${{ env.basearch }}/
+        enabled = 1
+        name = almalinux-${{ env.pulp_root }}-testing-pulp
+        gpgkey=file://${{ env.rpm_gpg_key }}
+        EOF
+
     - name: Create AlmaLinux nvidia pulp repository
       if: env.nvidia == 'true' && inputs.pulp_repository
       run: |
@@ -280,6 +297,13 @@ jobs:
       run: |
         system_release=$(sudo vagrant ssh almalinux -c "cat /etc/almalinux-release")
         echo "system_release=${system_release}" >> $GITHUB_ENV
+
+    - name: Add testing repository
+      # With pulp the testing repo comes from pulp (see the pulp step above).
+      # Kitten has no testing repository, so skip it there.
+      if: inputs.testing_repository && !inputs.pulp_repository && !startsWith(matrix.variant, '10-kitten')
+      run: |
+        sudo vagrant ssh almalinux -c "sudo dnf install -y almalinux-release-testing"
 
     - name: Prepare test infrastructure
       run: |
