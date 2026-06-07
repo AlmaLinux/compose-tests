@@ -1,6 +1,12 @@
 summary: Imported t_functional tests
 
 environment:
+    # tmt >= 1.75.0 no longer leaks the runner's process environment into
+    # test commands (teemtee/tmt#4900), so /usr/sbin and /sbin are no longer
+    # on PATH by default. The legacy t_functional scripts call privileged
+    # tools (useradd, ip, service, auditctl, setsebool, tcpdump, ...) by bare
+    # name, so set an sbin-inclusive PATH explicitly.
+    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     YUMDEBUG: 0
     SKIP_QA_HARNESS: 1
     vendor: "almalinux"

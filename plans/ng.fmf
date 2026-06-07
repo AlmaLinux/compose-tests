@@ -1,5 +1,11 @@
 summary: New generation tests fully leveraging tmt
 
+environment:
+    # tmt >= 1.75.0 no longer leaks the runner's process environment into
+    # test commands (teemtee/tmt#4900), so /usr/sbin and /sbin are no longer
+    # on PATH by default. Tests calling privileged tools (useradd, usermod,
+    # the bpf-* helpers, ...) by bare name need an sbin-inclusive PATH.
+    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 discover:
     how: fmf
     exclude: /legacy
