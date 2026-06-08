@@ -1,5 +1,12 @@
 summary: New generation tests fully leveraging tmt
 
+environment:
+    # tmt >= 1.75.0 no longer leaks the runner's process environment into
+    # test commands (teemtee/tmt#4900). Restore the variables the suite
+    # relied on: an sbin-inclusive PATH (tests call useradd, usermod, the
+    # bpf-* helpers, ... by bare name) and HOME.
+    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    HOME: "/root"
 discover:
     how: fmf
     exclude: /legacy
