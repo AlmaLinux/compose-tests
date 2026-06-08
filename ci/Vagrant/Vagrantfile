@@ -5,9 +5,14 @@ Vagrant.configure("2") do |config|
 
     config.vm.define 'almalinux'
 
+    host_cpus = `nproc`.to_i
+    host_ram  = `grep MemTotal /proc/meminfo | awk '{print $2}'`.to_i / 1024
+    guest_cpus = [1, host_cpus - 2].max
+    guest_ram  = (host_ram * 0.25).to_i
+
     config.vm.provider "libvirt" do |v|
-        v.memory = 12288
-        v.cpus = 4
+        v.memory = guest_ram
+        v.cpus = guest_cpus
         if ENV['vagrant_cpu_model']
             v.cpu_mode  = "custom"
             v.cpu_model = ENV['vagrant_cpu_model']
