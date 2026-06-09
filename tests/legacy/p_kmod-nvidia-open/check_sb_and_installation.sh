@@ -21,7 +21,18 @@ if [[ $SKIP -eq 0 ]]; then
     t_InstallPackage kmod-nvidia-open
     t_InstallPackage nvidia-open-kmod
 
-    for i in $(rpm -ql kmod-nvidia-open | grep '\.ko$'); do
+    if [[ "$arch" == "x86_64" ]]; then
+        # Derive the module names from the package's .ko files (strip the
+        # path and the .ko extension). Using the bare names means modinfo
+        # resolves them against the running kernel's modules.dep, so we also
+        # verify they are visible from the running kernel, not just that the
+        # package ships signed .ko files.
+        MODULES=$(rpm -ql kmod-nvidia-open | grep '\.ko$' | sed 's#.*/##; s#\.ko$##')
+    else
+        MODULES=$(rpm -ql kmod-nvidia-open | grep '\.ko$')
+    fi
+
+    for i in $MODULES; do
         modinfo $i | grep $kmod_nvidia_sb_key
         t_CheckExitStatus $?
     done
