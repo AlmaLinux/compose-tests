@@ -7,11 +7,7 @@ arch=$(uname -m)
 
 SKIP=1
 
-if [[ "$centos_ver" -eq 9 && ("$arch" == "x86_64" || "$arch" == "aarch64") ]]; then
-  SKIP=0
-fi
-
-if [[ "$centos_ver" -eq 10 && "$arch" != "x86_64" ]]; then
+if [[ ("$centos_ver" -eq 9 || "$centos_ver" -eq 10) && ("$arch" == "x86_64" || "$arch" == "aarch64") ]]; then
   SKIP=0
 fi
 
