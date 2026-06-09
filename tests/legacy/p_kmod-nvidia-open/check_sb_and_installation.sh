@@ -3,7 +3,11 @@
 
 t_Log "Running $0 -  Verifying that kmod-nvidia-open is correctly signed with correct cert"
 
-arch=$(uname -m)
+# Derive the arch from the glibc RPM rather than `uname -m`: on x86_64_v2
+# composes `uname -m` still reports plain "x86_64", but the NVIDIA driver is
+# not built for x86_64_v2, so the package arch (x86_64_v2) is what we must
+# match on to skip those runners.
+arch=$(rpm -q --queryformat '%{ARCH}' glibc)
 
 SKIP=1
 
