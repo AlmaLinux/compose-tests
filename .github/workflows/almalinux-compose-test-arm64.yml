@@ -72,7 +72,7 @@ jobs:
 
       - name: Setup and start runner
         id: start-ec2-runner
-        uses: NextChapterSoftware/ec2-action-builder@v1.5
+        uses: unblocked/ec2-action-builder@v1.11
         with:
           github_token: ${{ secrets.GIT_HUB_TOKEN }}
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
