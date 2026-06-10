@@ -5,10 +5,11 @@ Vagrant.configure("2") do |config|
 
     config.vm.define 'almalinux'
 
+    # Size the guest from host resources (this Vagrantfile is evaluated on the Linux host).
     host_cpus = `nproc`.to_i
-    host_ram  = `grep MemTotal /proc/meminfo | awk '{print $2}'`.to_i / 1024
-    guest_cpus = [1, host_cpus - 2].max
-    guest_ram  = (host_ram * 0.25).to_i
+    host_ram  = `awk '/^MemTotal:/ {print $2}' /proc/meminfo`.to_i / 1024  # MiB (MemTotal is kB)
+    guest_cpus = [host_cpus - 2, 1].max                                   # leave 2 cores for the host
+    guest_ram  = [(host_ram * 0.25).to_i, 1024].max                       # 25% of host RAM, min 1 GiB
 
     config.vm.provider "libvirt" do |v|
         v.memory = guest_ram
