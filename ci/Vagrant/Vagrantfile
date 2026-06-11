@@ -8,8 +8,8 @@ Vagrant.configure("2") do |config|
     # Size the guest from host resources (this Vagrantfile is evaluated on the Linux host).
     host_cpus = `nproc`.to_i
     host_ram  = `awk '/^MemTotal:/ {print $2}' /proc/meminfo`.to_i / 1024  # MiB (MemTotal is kB)
-    guest_cpus = [host_cpus - 4, 1].max                                   # leave 4 cores for the host
-    guest_ram  = [(host_ram * 0.25).to_i, 1024].max                       # 25% of host RAM, min 1 GiB
+    guest_cpus = [host_cpus - 2, 1].max                                   # leave 2 cores for the host
+    guest_ram  = [(host_ram * 0.75).to_i, 1024].max                       # 75% of host RAM, min 1 GiB
 
     config.vm.provider "libvirt" do |v|
         v.memory = guest_ram
