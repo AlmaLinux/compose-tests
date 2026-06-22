@@ -38,67 +38,29 @@ on:
           description: 'Re-run failed tests'
           type: boolean
           default: true
+
 jobs:
-
-  start-runner:
-    timeout-minutes: 10              # normally it only takes 1-2 minutes
-    name: Setup and start self-hosted EC2 runner
-    runs-on: ubuntu-24.04
-    permissions:
-      actions: write
-    steps:
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4.0.2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Get AlmaLinux ${{ inputs.version_major }} aarch64 AMI most recent ID
-        run: |
-          os_version="${{ inputs.version_major }}"
-          if [[ "${os_version}" == "10-kitten" ]]; then
-            os_version="Kitten 10"
-          fi
-          AMI_ID=$(aws ec2 describe-images --owners 764336703387 --query "Images | max_by(@, &CreationDate) | ImageId" --filters "Name=name,Values=AlmaLinux OS ${os_version}*aarch64" --region ${{ secrets.AWS_REGION }} --output text)
-          if [[ "${AMI_ID}" == "" || "${AMI_ID}" == "None" ]]; then
-            echo "[Error] Failed to get AMI ID for AlmaLinux ${os_version} aarch64."
-            exit 1
-          else
-            echo "[Debug] AMI ID: '${AMI_ID}'"
-          fi
-          echo "AMI_ID=${AMI_ID}" >> $GITHUB_ENV
-
-      - name: Setup and start runner
-        id: start-ec2-runner
-        uses: unblocked/ec2-action-builder@v1.11
-        with:
-          github_token: ${{ secrets.GIT_HUB_TOKEN }}
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws_region: ${{ secrets.AWS_REGION }}
-          ec2_ami_id: ${{ env.AMI_ID }}
-          ec2_subnet_id: ${{ secrets.EC2_SUBNET_ID}}
-          ec2_security_group_id: ${{ secrets.EC2_SECURITY_GROUP_ID }}
-
-          ec2_instance_type: t4g.large        # 2 vCPU and 8 GiM Memory are enough to run tests
-          ec2_root_disk_size_gb: "16"         # override default size which is too small for actions and tests stuff
-          ec2_root_disk_ebs_class: "gp3"      # use faster and cheeper storage instead of default 'gp2'
-          ec2_instance_ttl: 120               # Optional (default is 60 minutes)
-          ec2_spot_instance_strategy: None    # Other options are: SpotOnly, BestEffort, MaxPerformance
-          ec2_instance_tags: >                # Required for IAM role resource permission scoping
-            [
-              {"Key": "Project", "Value": "GitHub Actions Self-hosted Runners"}
-            ]
 
   compose-test:
     name: AlmaLinux ${{ inputs.version_major }}
-    runs-on: ${{ github.run_id }}
-    needs: start-runner # required to start the main job when the runner is ready
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    env:
+      # Default SSH user of the official AlmaLinux AMIs
+      ssh_user: ec2-user
+      # SSH alias configured in ~/.ssh/config (see 'Wait for SSH' step)
+      ssh_host: almalinux
 
     steps:
     - uses: actions/checkout@v5
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4.0.2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
 
     - name: Prepare stuff
       run: |
@@ -156,8 +118,13 @@ jobs:
         # RPM_GPG_KEY file
         echo "rpm_gpg_key=${rpm_gpg_key}" >> $GITHUB_ENV
 
-        # TMT tests run directory
+        # TMT tests run directory (on the instance)
         echo "tmt_run_dir=/var/tmp/tmt/run-001" >> $GITHUB_ENV
+
+        # Local directory on the runner to gather artifacts pulled from the instance
+        artifacts_dir="${{ github.workspace }}/artifacts"
+        mkdir -p "${artifacts_dir}"
+        echo "artifacts_dir=${artifacts_dir}" >> $GITHUB_ENV
 
         # For nvidia drivers tests
         case ${{ inputs.version_major }} in
@@ -170,11 +137,124 @@ jobs:
         esac
         echo "nvidia=${nvidia}" >> $GITHUB_ENV
 
+    - name: Get AlmaLinux ${{ inputs.version_major }} aarch64 AMI most recent ID
+      run: |
+        os_version="${{ inputs.version_major }}"
+        if [[ "${os_version}" == "10-kitten" ]]; then
+          os_version="Kitten 10"
+        fi
+        AMI_ID=$(aws ec2 describe-images --owners 764336703387 --query "Images | max_by(@, &CreationDate) | ImageId" --filters "Name=name,Values=AlmaLinux OS ${os_version}*aarch64" --region ${{ secrets.AWS_REGION }} --output text)
+        if [[ "${AMI_ID}" == "" || "${AMI_ID}" == "None" ]]; then
+          echo "[Error] Failed to get AMI ID for AlmaLinux ${os_version} aarch64."
+          exit 1
+        else
+          echo "[Debug] AMI ID: '${AMI_ID}'"
+        fi
+        echo "AMI_ID=${AMI_ID}" >> $GITHUB_ENV
+
+    - name: Create SSH key pair
+      run: |
+        key_name="compose-test-arm64-${{ github.run_id }}"
+        mkdir -p ~/.ssh && chmod 700 ~/.ssh
+        ssh-keygen -t ed25519 -f ~/.ssh/id_ec2 -N '' -q
+        # Import the public key as an EC2 key pair used to launch the instance
+        aws ec2 import-key-pair \
+          --key-name "${key_name}" \
+          --public-key-material fileb://"$HOME"/.ssh/id_ec2.pub
+        echo "key_name=${key_name}" >> $GITHUB_ENV
+
+    - name: Allow SSH from the runner
+      run: |
+        # Open inbound SSH on the shared security group, scoped to this runner's IP.
+        # The rule is revoked in the 'Cleanup AWS resources' step.
+        runner_ip=$(curl -fsS https://checkip.amazonaws.com)
+        aws ec2 authorize-security-group-ingress \
+          --group-id ${{ secrets.EC2_SECURITY_GROUP_ID }} \
+          --protocol tcp --port 22 --cidr "${runner_ip}/32" || true
+        echo "runner_ip=${runner_ip}" >> $GITHUB_ENV
+
+    - name: Launch EC2 instance
+      run: |
+        # Match the instance's root device name so the size override is applied to it
+        root_dev=$(aws ec2 describe-images --image-ids ${{ env.AMI_ID }} \
+          --query 'Images[0].RootDeviceName' --output text)
+
+        # Self-destruct failsafe: if the workflow (or GitHub) dies before the
+        # 'Cleanup AWS resources' step runs, the instance still terminates itself
+        # ~2 hours after launch. A systemd timer anchored to an absolute time
+        # (not OnBootSec, which would reset on our mid-run reboot) powers the box
+        # off; combined with --instance-initiated-shutdown-behavior=terminate that
+        # terminates the instance. A 'reboot' is not a power-off, so it is safe.
+        cat > /tmp/userdata.sh <<'USERDATA'
+        #!/bin/bash
+        shutdown_at=$(date -u -d '+2 hours' '+%Y-%m-%d %H:%M:%S')
+        cat >/etc/systemd/system/selfdestruct.service <<'UNIT'
+        [Unit]
+        Description=Self-destruct: power off so EC2 terminates the instance
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/sbin/poweroff
+        UNIT
+        cat >/etc/systemd/system/selfdestruct.timer <<UNIT
+        [Unit]
+        Description=Self-destruct timer (~2h after launch)
+        [Timer]
+        OnCalendar=${shutdown_at}
+        Persistent=true
+        AccuracySec=1min
+        [Install]
+        WantedBy=timers.target
+        UNIT
+        systemctl daemon-reload
+        systemctl enable --now selfdestruct.timer
+        USERDATA
+
+        instance_id=$(aws ec2 run-instances \
+          --image-id ${{ env.AMI_ID }} \
+          --instance-type t4g.large \
+          --key-name ${{ env.key_name }} \
+          --subnet-id ${{ secrets.EC2_SUBNET_ID }} \
+          --security-group-ids ${{ secrets.EC2_SECURITY_GROUP_ID }} \
+          --associate-public-ip-address \
+          --instance-initiated-shutdown-behavior terminate \
+          --user-data file:///tmp/userdata.sh \
+          --block-device-mappings "[{\"DeviceName\":\"${root_dev}\",\"Ebs\":{\"VolumeSize\":24,\"VolumeType\":\"gp3\",\"DeleteOnTermination\":true}}]" \
+          --tag-specifications 'ResourceType=instance,Tags=[{Key=Project,Value=GitHub Actions Self-hosted Runners},{Key=Name,Value=compose-test-arm64-${{ github.run_id }}}]' \
+          --query 'Instances[0].InstanceId' --output text)
+
+        echo "[Debug] Launched instance: ${instance_id}"
+        echo "instance_id=${instance_id}" >> $GITHUB_ENV
+
+    - name: Wait for SSH and configure access
+      run: |
+        aws ec2 wait instance-running --instance-ids ${{ env.instance_id }}
+        instance_ip=$(aws ec2 describe-instances --instance-ids ${{ env.instance_id }} \
+          --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+        echo "[Debug] Instance public IP: ${instance_ip}"
+
+        # SSH alias used by all the steps below ('ssh almalinux ...', 'scp ... almalinux:...')
+        cat > ~/.ssh/config <<EOF
+        Host ${{ env.ssh_host }}
+          HostName ${instance_ip}
+          User ${{ env.ssh_user }}
+          IdentityFile ~/.ssh/id_ec2
+          StrictHostKeyChecking no
+          UserKnownHostsFile /dev/null
+          ConnectTimeout 10
+        EOF
+
+        # Wait for sshd to accept connections
+        for i in $(seq 1 60); do
+          ssh ${{ env.ssh_host }} true 2>/dev/null && break
+          echo "[Debug] Waiting for SSH (${i})"
+          sleep 10
+        done
+        ssh ${{ env.ssh_host }} 'echo "[Debug] Connected as $(whoami) on $(hostname)"'
 
     - name: Create AlmaLinux pungi repository
       if: inputs.pungi_repository
       run: |
-        cat <<'EOF'>/etc/yum.repos.d/almalinux-pungi.repo
+        cat <<'EOF'>"${{ env.artifacts_dir }}/almalinux-pungi.repo"
         [almalinux-${{ env.release_version }}-appstream-pungi]
         baseurl = http://aarch64-pungi-${{ env.release_version }}.almalinux.dev/almalinux/${{ env.release_version }}/$arch/${{ env.pungi_latest_result }}/compose/AppStream/$arch/os/
         enabled = 1
@@ -203,7 +283,7 @@ jobs:
     - name: Create AlmaLinux pulp repository
       if: inputs.pulp_repository
       run: |
-        cat <<'EOF'>/etc/yum.repos.d/almalinux-pulp.repo
+        cat <<'EOF'>"${{ env.artifacts_dir }}/almalinux-pulp.repo"
         [almalinux-${{ env.pulp_root }}-appstream-pulp]
         baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-appstream-$arch/
         enabled = 1
@@ -233,7 +313,7 @@ jobs:
       # Kitten has no testing repository, so skip it there
       if: inputs.pulp_repository && inputs.testing_repository && inputs.version_major != '10-kitten'
       run: |
-        cat <<'EOF'>/etc/yum.repos.d/almalinux-testing-pulp.repo
+        cat <<'EOF'>"${{ env.artifacts_dir }}/almalinux-testing-pulp.repo"
         [almalinux-${{ env.pulp_root }}-testing-pulp]
         baseurl = https://build.almalinux.org/pulp/content/prod/almalinux-${{ env.pulp_root }}-testing-$arch/
         enabled = 1
@@ -246,7 +326,7 @@ jobs:
       run: |
         # Repositories of the 'almalinux-nvidia' product
         # https://build.almalinux.org/product/777
-        cat <<'EOF'>/etc/yum.repos.d/almalinux-nvidia-pulp.repo
+        cat <<'EOF'>"${{ env.artifacts_dir }}/almalinux-nvidia-pulp.repo"
         [almalinux-${{ env.pulp_root }}-nvidia-pulp]
         baseurl = https://build.almalinux.org/pulp/content/copr/anfimovdm-almalinux-nvidia-almalinux-${{ env.pulp_root }}-$arch-dr/
         enabled = 1
@@ -254,113 +334,170 @@ jobs:
         gpgkey=file://${{ env.rpm_gpg_key }},file:///etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA-CUDA-${{ env.release_version }}
         EOF
 
-    - name: Update the system
+    - name: Push repositories to the instance
       run: |
-        sudo dnf -y clean all
-        sudo dnf -y update
+        for repo in almalinux-pungi almalinux-pulp almalinux-testing-pulp almalinux-nvidia-pulp; do
+          f="${{ env.artifacts_dir }}/${repo}.repo"
+          if [ -e "$f" ]; then
+            echo "[Debug] Installing ${repo}.repo"
+            scp "$f" ${{ env.ssh_host }}:/tmp/${repo}.repo
+            ssh ${{ env.ssh_host }} "sudo cp -av /tmp/${repo}.repo /etc/yum.repos.d/${repo}.repo"
+          fi
+        done
+
+    - name: Update the system and reboot
+      run: |
+        ssh ${{ env.ssh_host }} "sudo dnf -y clean all"
+        ssh ${{ env.ssh_host }} "sudo dnf -y upgrade"
+
+        # Reboot to boot the newly installed kernel, then wait for SSH to come back
+        echo "[Debug] Rebooting to run the newly installed kernel"
+        ssh ${{ env.ssh_host }} "sudo reboot" || true
+        sleep 30
+        for i in $(seq 1 60); do
+          ssh ${{ env.ssh_host }} true 2>/dev/null && break
+          echo "[Debug] Waiting for SSH after reboot (${i})"
+          sleep 10
+        done
+        echo "[Debug] Running kernel:"
+        ssh ${{ env.ssh_host }} "uname -r"
+
+    - name: Get compose-tests onto the instance
+      run: |
+        tar --exclude=./artifacts -C "${{ github.workspace }}" -czf /tmp/compose-tests.tgz .
+        scp /tmp/compose-tests.tgz ${{ env.ssh_host }}:/tmp/compose-tests.tgz
+        ssh ${{ env.ssh_host }} "sudo rm -rf /compose-tests && sudo mkdir -p /compose-tests && sudo tar -C /compose-tests -xzf /tmp/compose-tests.tgz"
 
     - name: Get system release
       run: |
-        echo "system_release=$(cat /etc/almalinux-release)" >> $GITHUB_ENV
+        echo "system_release=$(ssh ${{ env.ssh_host }} 'cat /etc/almalinux-release')" >> $GITHUB_ENV
 
     - name: Add testing repository
       # With pulp the testing repo comes from pulp (see the pulp step above).
       # Kitten has no testing repository, so skip it there.
       if: inputs.testing_repository && !inputs.pulp_repository && inputs.version_major != '10-kitten'
       run: |
-        sudo dnf install -y almalinux-release-testing
+        ssh ${{ env.ssh_host }} "sudo dnf install -y almalinux-release-testing"
 
     - name: Prepare test infrastructure
       run: |
+        ssh ${{ env.ssh_host }} 'sudo bash -s' <<'REMOTE'
         enable_repo=${{ env.dnf_crb_repo }}
         dnf_opts="--enablerepo=${enable_repo,,}"
         if [ "${{ inputs.disable_default_repos }}" = "true" ]; then
           # Disable all enabled system repositories
-          for enabled_repo in $(sudo dnf repolist --enabled | awk '/repo id/ {A=1; next} A {print $1}' | grep -v -E 'pungi|pulp'); do
+          for enabled_repo in $(dnf repolist --enabled | awk '/repo id/ {A=1; next} A {print $1}' | grep -v -E 'pungi|pulp'); do
             echo "[Debug] Disable '${enabled_repo}' repository"
-            sudo dnf config-manager --set-disabled ${enabled_repo}
+            dnf config-manager --set-disabled ${enabled_repo}
           done
           dnf_opts=
         fi
         case ${{ inputs.version_major }} in
           10-kitten)
-            sudo dnf install -y ${dnf_opts} epel-release almalinux-kitten-release-devel
+            dnf install -y ${dnf_opts} epel-release almalinux-kitten-release-devel
             [ "${{ inputs.disable_default_repos }}" = "false" ] && \
               dnf_opts="${dnf_opts} --enablerepo=devel"
-            sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service
-            sudo sh -c 'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
+            dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service
+            export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt
             ;;
           10)
-            sudo dnf install -y ${dnf_opts} epel-release
-            sudo dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service
-            sudo sh -c  'export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt'
+            dnf install -y ${dnf_opts} epel-release
+            dnf install -y ${dnf_opts} python3-pip beakerlib initscripts-service
+            export PATH=$PATH:/usr/local/bin; pip install flexparser==0.3.1 tmt
             ;;
           9)
-            sudo dnf install -y ${dnf_opts} epel-release
-            sudo dnf install -y ${dnf_opts} tmt initscripts-service
+            dnf install -y ${dnf_opts} epel-release
+            dnf install -y ${dnf_opts} tmt initscripts-service
             ;;
           *)
-            sudo dnf install -y ${dnf_opts} epel-release
-            sudo dnf install -y ${dnf_opts} tmt tmt-report-html
+            dnf install -y ${dnf_opts} epel-release
+            dnf install -y ${dnf_opts} tmt tmt-report-html
             ;;
         esac
-
-        echo "[Debug] $(sudo sh -c 'export PATH=$PATH:/usr/local/bin; tmt --version')"
+        export PATH=$PATH:/usr/local/bin
+        echo "[Debug] tmt version: $(tmt --version)"
+        REMOTE
 
     - name: Run tests
       id: run-tests
       continue-on-error: true
-      run: sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=$PATH:/usr/local/bin; tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }}'
+      run: |
+        ssh ${{ env.ssh_host }} 'sudo bash -s' <<'REMOTE'
+        export pungi_repository=${{ inputs.pungi_repository }}
+        export pulp_repository=${{ inputs.pulp_repository }}
+        export PATH=$PATH:/usr/local/bin
+        cd /compose-tests
+        tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }}
+        REMOTE
 
     - name: ${{ inputs.version_major }} tests results
       run: |
+        ssh ${{ env.ssh_host }} 'sudo bash -s' <<'REMOTE'
         #[Debug]
-        sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name "results.yaml" -exec cat {} \;
+        find ${{ env.tmt_run_dir }}/plans/*/execute -name "results.yaml" -exec cat {} \;
 
-        sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name "results.yaml" -exec sh -c 'cp -av "$1" "${{ github.action_path }}/$(basename "$(dirname "$(dirname $1)")").results.yaml"' _ {} \;
+        out=/tmp/ct-collect
+        rm -rf "$out"; mkdir -p "$out"
+        for f in $(find ${{ env.tmt_run_dir }}/plans/*/execute -name "results.yaml"); do
+          cp -av "$f" "$out/$(basename "$(dirname "$(dirname "$f")")").results.yaml"
+        done
+        chmod -R a+r "$out"
+        REMOTE
+        scp ${{ env.ssh_host }}:'/tmp/ct-collect/*.results.yaml' "${{ env.artifacts_dir }}/" 2>/dev/null || true
 
     - name: ${{ inputs.version_major }} tests log
       run: |
         #[Debug]
-        sudo cat ${{ env.tmt_run_dir }}/log.txt
+        ssh ${{ env.ssh_host }} "sudo cat ${{ env.tmt_run_dir }}/log.txt"
 
-        sudo /bin/cp -av ${{ env.tmt_run_dir }}/log.txt ${{github.action_path}}/log.txt
+        ssh ${{ env.ssh_host }} "sudo cp -av ${{ env.tmt_run_dir }}/log.txt /tmp/log.txt && sudo chmod a+r /tmp/log.txt"
+        scp ${{ env.ssh_host }}:/tmp/log.txt "${{ env.artifacts_dir }}/log.txt"
 
     - name: ${{ inputs.version_major }} tests output
       run: |
+        ssh ${{ env.ssh_host }} 'sudo bash -s' <<'REMOTE'
         cd ${{ env.tmt_run_dir }}/
-        tar cf ${{github.action_path}}/output.tar $( find . -name output.txt ) || true
+        tar cf /tmp/output.tar $( find . -name output.txt ) || true
+        chmod a+r /tmp/output.tar
+        REMOTE
+        scp ${{ env.ssh_host }}:/tmp/output.tar "${{ env.artifacts_dir }}/output.tar" || true
 
     - uses: actions/upload-artifact@v6
       with:
         name: Tests log
-        path: ${{github.action_path}}/log.txt
+        path: ${{ env.artifacts_dir }}/log.txt
 
     - uses: actions/upload-artifact@v6
       with:
         name: Tests results
-        path: ${{github.action_path}}/*.results.yaml
+        path: ${{ env.artifacts_dir }}/*.results.yaml
 
     - uses: actions/upload-artifact@v6
       with:
         name: Tests output
-        path: ${{github.action_path}}/output.tar
+        path: ${{ env.artifacts_dir }}/output.tar
 
     - name: Get list of failed tests
       if: job.steps.run-tests.status == failure()
       run: |
+        ssh ${{ env.ssh_host }} 'sudo bash -s' <<'REMOTE'
         # Install 'yq'
-        sudo curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
-        sudo chmod +x /usr/bin/yq
-        sudo /usr/bin/yq --version
+        curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
+        chmod +x /usr/bin/yq
+        /usr/bin/yq --version
 
         # Create failed tests list
         yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' \
-          $(sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name results.yaml | xargs) \
+          $(find ${{ env.tmt_run_dir }}/plans/*/execute -name results.yaml | xargs) \
           > ${{ env.tmt_run_dir }}/tests_failed.txt
 
         echo "[Debug] failed tests:"
-        echo "$(cat ${{ env.tmt_run_dir }}/tests_failed.txt)"
+        cat ${{ env.tmt_run_dir }}/tests_failed.txt
+
+        cp -av ${{ env.tmt_run_dir }}/tests_failed.txt /tmp/tests_failed.txt
+        chmod a+r /tmp/tests_failed.txt
+        REMOTE
+        scp ${{ env.ssh_host }}:/tmp/tests_failed.txt "${{ env.artifacts_dir }}/tests_failed.txt"
 
     - name: Re-run failed tests, prepare tests summary
       if: job.steps.run-tests.status == failure()
@@ -370,7 +507,7 @@ jobs:
         exit_code=0
 
         # Read failed tests list
-        for test_failed in $(cat ${{ env.tmt_run_dir }}/tests_failed.txt | xargs); do
+        for test_failed in $(cat "${{ env.artifacts_dir }}/tests_failed.txt" | xargs); do
           echo "[Debug] Re-run '${test_failed}'"
 
           # Include failed test name into results summary
@@ -378,7 +515,7 @@ jobs:
 
           # Re-run specific failed test
           if [ "${{ inputs.rerun_failed }}" = "true" ]; then
-            if sudo sh -c "export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=$PATH:/usr/local/bin; tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }} test --name ${test_failed}"; then
+            if ssh ${{ env.ssh_host }} "sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=\$PATH:/usr/local/bin; cd /compose-tests; tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }} test --name ${test_failed}'"; then
               test_result="${test_failed} [re-run ✅]"
             else
               test_result="${test_failed} [re-run ❌]"
@@ -415,3 +552,25 @@ jobs:
               .addHeading('${{ env.summary_header }}', '4')
               .addList([${{ env.rerun_results }}], true)
               .write()
+
+    - name: Cleanup AWS resources
+      if: always()
+      run: |
+        # Terminate the instance
+        if [ -n "${{ env.instance_id }}" ]; then
+          echo "[Debug] Terminating ${{ env.instance_id }}"
+          aws ec2 terminate-instances --instance-ids ${{ env.instance_id }} || true
+          aws ec2 wait instance-terminated --instance-ids ${{ env.instance_id }} || true
+        fi
+
+        # Revoke the temporary SSH ingress rule
+        if [ -n "${{ env.runner_ip }}" ]; then
+          aws ec2 revoke-security-group-ingress \
+            --group-id ${{ secrets.EC2_SECURITY_GROUP_ID }} \
+            --protocol tcp --port 22 --cidr "${{ env.runner_ip }}/32" || true
+        fi
+
+        # Delete the EC2 key pair
+        if [ -n "${{ env.key_name }}" ]; then
+          aws ec2 delete-key-pair --key-name ${{ env.key_name }} || true
+        fi
