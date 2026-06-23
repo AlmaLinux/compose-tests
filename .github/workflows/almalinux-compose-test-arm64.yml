@@ -152,16 +152,13 @@ jobs:
         fi
         echo "AMI_ID=${AMI_ID}" >> $GITHUB_ENV
 
-    - name: Create SSH key pair
+    - name: Generate SSH key pair
       run: |
-        key_name="compose-test-arm64-${{ github.run_id }}"
+        # The IAM role may not import/create EC2 key pairs, so we don't register
+        # one with AWS. The public key is injected into the instance via user-data
+        # (see 'Launch EC2 instance'); only the private key stays on the runner.
         mkdir -p ~/.ssh && chmod 700 ~/.ssh
         ssh-keygen -t ed25519 -f ~/.ssh/id_ec2 -N '' -q
-        # Import the public key as an EC2 key pair used to launch the instance
-        aws ec2 import-key-pair \
-          --key-name "${key_name}" \
-          --public-key-material fileb://"$HOME"/.ssh/id_ec2.pub
-        echo "key_name=${key_name}" >> $GITHUB_ENV
 
     - name: Allow SSH from the runner
       run: |
@@ -179,14 +176,26 @@ jobs:
         root_dev=$(aws ec2 describe-images --image-ids ${{ env.AMI_ID }} \
           --query 'Images[0].RootDeviceName' --output text)
 
-        # Self-destruct failsafe: if the workflow (or GitHub) dies before the
-        # 'Cleanup AWS resources' step runs, the instance still terminates itself
-        # ~2 hours after launch. A systemd timer anchored to an absolute time
-        # (not OnBootSec, which would reset on our mid-run reboot) powers the box
-        # off; combined with --instance-initiated-shutdown-behavior=terminate that
-        # terminates the instance. A 'reboot' is not a power-off, so it is safe.
-        cat > /tmp/userdata.sh <<'USERDATA'
+        # User-data does two things on first boot:
+        #  1. Installs our SSH public key for ${{ env.ssh_user }} (the IAM role
+        #     can't register an EC2 key pair, so we can't use --key-name).
+        #  2. Self-destruct failsafe: if the workflow (or GitHub) dies before the
+        #     'Cleanup AWS resources' step runs, the instance still terminates
+        #     itself ~2 hours after launch. A systemd timer anchored to an
+        #     absolute time (not OnBootSec, which would reset on our mid-run
+        #     reboot) powers the box off; combined with
+        #     --instance-initiated-shutdown-behavior=terminate that terminates the
+        #     instance. A 'reboot' is not a power-off, so it is safe.
+        pubkey=$(cat ~/.ssh/id_ec2.pub)
+        cat > /tmp/userdata.sh <<USERDATA
         #!/bin/bash
+        install -d -m 700 -o ${{ env.ssh_user }} -g ${{ env.ssh_user }} /home/${{ env.ssh_user }}/.ssh
+        echo "${pubkey}" >> /home/${{ env.ssh_user }}/.ssh/authorized_keys
+        chown ${{ env.ssh_user }}:${{ env.ssh_user }} /home/${{ env.ssh_user }}/.ssh/authorized_keys
+        chmod 600 /home/${{ env.ssh_user }}/.ssh/authorized_keys
+        USERDATA
+
+        cat >> /tmp/userdata.sh <<'USERDATA'
         shutdown_at=$(date -u -d '+2 hours' '+%Y-%m-%d %H:%M:%S')
         cat >/etc/systemd/system/selfdestruct.service <<'UNIT'
         [Unit]
@@ -212,7 +221,6 @@ jobs:
         instance_id=$(aws ec2 run-instances \
           --image-id ${{ env.AMI_ID }} \
           --instance-type t4g.large \
-          --key-name ${{ env.key_name }} \
           --subnet-id ${{ secrets.EC2_SUBNET_ID }} \
           --security-group-ids ${{ secrets.EC2_SECURITY_GROUP_ID }} \
           --associate-public-ip-address \
@@ -568,9 +576,4 @@ jobs:
           aws ec2 revoke-security-group-ingress \
             --group-id ${{ secrets.EC2_SECURITY_GROUP_ID }} \
             --protocol tcp --port 22 --cidr "${{ env.runner_ip }}/32" || true
-        fi
-
-        # Delete the EC2 key pair
-        if [ -n "${{ env.key_name }}" ]; then
-          aws ec2 delete-key-pair --key-name ${{ env.key_name }} || true
         fi
