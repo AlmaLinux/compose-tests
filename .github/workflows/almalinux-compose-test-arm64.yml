@@ -39,6 +39,11 @@ on:
           type: boolean
           default: true
 
+        notify_mattermost:
+          description: 'Send results notification to Mattermost'
+          type: boolean
+          default: true
+
 jobs:
 
   compose-test:
@@ -56,7 +61,7 @@ jobs:
     - uses: actions/checkout@v5
 
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4.0.2
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -548,18 +553,61 @@ jobs:
         exit $exit_code
 
     - name: Print tests summary
-      if: job.steps.run-tests.status == failure() || failure()
+      id: summary
+      # Always run so the run-page summary and the Mattermost text are produced
+      # for both passing and failing runs.
+      if: always()
       uses: actions/github-script@v8
       with:
         result-encoding: string
         script: |
+          const repos = [
+            'pulp - ${{ inputs.pulp_repository && '✅' || '❌' }}',
+            'pungi - ${{ inputs.pungi_repository && '✅' || '❌' }}',
+            'default repos - ${{ inputs.disable_default_repos && '❌' || '✅' }}',
+          ];
+          const failed = [${{ env.rerun_results }}];
+          // 'summary_header' is only set on the failed-tests path; otherwise
+          // derive it from the (continue-on-error) test step's outcome.
+          const header = '${{ env.summary_header }}'
+            || ('${{ steps['run-tests'].outcome }}' === 'success' ? '✅ All tests pass.' : '❌ Some tests failed.');
+
+          // Run-page summary
           core.summary
               .addHeading('${{ env.system_release }}', '4')
               .addHeading('Used repositories:', '4')
-              .addList(['pulp - ${{ inputs.pulp_repository && '✅' || '❌'}}','pungi - ${{ inputs.pungi_repository && '✅' || '❌'}}','default repos - ${{ inputs.disable_default_repos && '❌' || '✅'}}'], true)
-              .addHeading('${{ env.summary_header }}', '4')
-              .addList([${{ env.rerun_results }}], true)
-              .write()
+              .addList(repos, true)
+              .addHeading(header, '4')
+              .addList(failed, true)
+              .write();
+
+          // Markdown text for the Mattermost notification
+          const runUrl = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
+          const text = [
+            '#### AlmaLinux ${{ inputs.version_major }} aarch64 — compose tests',
+            '**${{ env.system_release }}**',
+            '',
+            '**Used repositories:**',
+            ...repos.map(r => '- ' + r),
+            '',
+            '**' + header + '**',
+            ...failed.map(f => '- ' + f),
+            '',
+            '[Workflow run](' + runUrl + ')',
+          ].join('\n');
+          core.setOutput('text', text);
+
+    - name: Send notification to Mattermost
+      uses: mattermost/action-mattermost-notify@master
+      # Notify on both pass and fail; never fail the job on a notification error
+      if: ${{ always() && inputs.notify_mattermost }}
+      continue-on-error: true
+      with:
+        MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_WEBHOOK_URL }}
+        MATTERMOST_CHANNEL: ${{ vars.MATTERMOST_CHANNEL }}
+        MATTERMOST_USERNAME: ${{ github.triggering_actor }}
+        TEXT: |
+          ${{ steps.summary.outputs.text }}
 
     - name: Cleanup AWS resources
       if: always()
