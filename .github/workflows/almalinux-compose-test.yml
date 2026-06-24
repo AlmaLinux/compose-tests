@@ -1,0 +1,86 @@
+name: almalinux-compose-test
+
+# Orchestrator: a single dispatch runs the compose tests on x86_64 (incl.
+# x86_64_v2) and aarch64 as parallel child jobs via reusable workflows.
+# The per-arch workflows can still be run on their own from the Actions UI.
+
+on:
+  workflow_dispatch:
+    inputs:
+
+      version_major:
+        description: 'AlmaLinux major version'
+        required: true
+        default: '10'
+        type: choice
+        options:
+          - 10-kitten
+          - 10
+          - 9
+          - 8
+
+      run_x86_64:
+        description: 'Run x86_64 (incl. x86_64_v2)'
+        type: boolean
+        default: true
+
+      run_arm64:
+        description: 'Run aarch64'
+        type: boolean
+        default: true
+
+      pungi_repository:
+        description: 'Add pungi repositories'
+        type: boolean
+
+      pulp_repository:
+        description: 'Add pulp repositories'
+        type: boolean
+        default: true
+
+      testing_repository:
+        description: 'Add testing repository'
+        type: boolean
+        default: false
+
+      disable_default_repos:
+        description: 'Disable system default repositories'
+        type: boolean
+        default: false
+
+      rerun_failed:
+        description: 'Re-run failed tests'
+        type: boolean
+        default: true
+
+      notify_mattermost:
+        description: 'Send results notification to Mattermost (aarch64)'
+        type: boolean
+        default: true
+
+jobs:
+
+  x86_64:
+    if: ${{ inputs.run_x86_64 }}
+    uses: ./.github/workflows/almalinux-compose-test-x86_64.yml
+    with:
+      version_major: ${{ inputs.version_major }}
+      pungi_repository: ${{ inputs.pungi_repository }}
+      pulp_repository: ${{ inputs.pulp_repository }}
+      testing_repository: ${{ inputs.testing_repository }}
+      disable_default_repos: ${{ inputs.disable_default_repos }}
+      rerun_failed: ${{ inputs.rerun_failed }}
+    secrets: inherit
+
+  arm64:
+    if: ${{ inputs.run_arm64 }}
+    uses: ./.github/workflows/almalinux-compose-test-arm64.yml
+    with:
+      version_major: ${{ inputs.version_major }}
+      pungi_repository: ${{ inputs.pungi_repository }}
+      pulp_repository: ${{ inputs.pulp_repository }}
+      testing_repository: ${{ inputs.testing_repository }}
+      disable_default_repos: ${{ inputs.disable_default_repos }}
+      rerun_failed: ${{ inputs.rerun_failed }}
+      notify_mattermost: ${{ inputs.notify_mattermost }}
+    secrets: inherit
