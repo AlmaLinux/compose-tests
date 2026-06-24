@@ -54,7 +54,7 @@ on:
         default: true
 
       notify_mattermost:
-        description: 'Send results notification to Mattermost (aarch64)'
+        description: 'Send results notification to Mattermost'
         type: boolean
         default: true
 
@@ -70,6 +70,7 @@ jobs:
       testing_repository: ${{ inputs.testing_repository }}
       disable_default_repos: ${{ inputs.disable_default_repos }}
       rerun_failed: ${{ inputs.rerun_failed }}
+      notify_mattermost: ${{ inputs.notify_mattermost }}
     secrets: inherit
 
   arm64:
