@@ -319,14 +319,26 @@ jobs:
         gpgkey=file://${{ env.rpm_gpg_key }},file:///etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA-CUDA-${{ env.release_version }}
         EOF
 
-    - name: Create 'yq' script to get failed tests
+    - name: Create results-eval script
       run: |
-        cat <<'EOF'>./yq.sh
-        yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' \
-          $(sudo find ${{ env.tmt_run_dir }}/plans/*/execute -name results.yaml | xargs) \
-          > ${{ env.tmt_run_dir }}/tests_failed.txt
-        echo "[Debug] failed tests:"
-        echo "$(cat ${{ env.tmt_run_dir }}/tests_failed.txt)"
+        # Runs inside the VM (synced as /vagrant): tally pass/fail/total from
+        # results.yaml, write the failed-tests list, and a stats file.
+        cat <<'EOF'>./ct-eval.sh
+        run_dir=${{ env.tmt_run_dir }}
+        total=0; passed=0; failed=0; errored=0
+        : > ${run_dir}/tests_failed.txt
+        for f in $(find ${run_dir}/plans/*/execute -name results.yaml 2>/dev/null); do
+          total=$((  total   + $(yq '. | length'                                  "$f" 2>/dev/null || echo 0) ))
+          passed=$(( passed  + $(yq '[.[] | select(.result == "pass")]  | length' "$f" 2>/dev/null || echo 0) ))
+          failed=$(( failed  + $(yq '[.[] | select(.result == "fail")]  | length' "$f" 2>/dev/null || echo 0) ))
+          errored=$((errored + $(yq '[.[] | select(.result == "error")] | length' "$f" 2>/dev/null || echo 0) ))
+          yq '.[] | select(.result == "fail" or .result == "error") | .name' "$f" 2>/dev/null \
+            >> ${run_dir}/tests_failed.txt
+        done
+        { echo "total=${total}"; echo "passed=${passed}"; echo "failed=$((failed + errored))"; } \
+          > ${run_dir}/tests_stats.txt
+        echo "[Debug] failed tests:"; cat ${run_dir}/tests_failed.txt
+        echo "[Debug] $(tr '\n' ' ' < ${run_dir}/tests_stats.txt)"
         EOF
 
     - name: Run vagrant up
@@ -392,7 +404,16 @@ jobs:
     - name: Run tests
       id: run-tests
       continue-on-error: true
-      run: sudo vagrant ssh almalinux -c "sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=$PATH:/usr/local/bin; cd /compose-tests; tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }}'"
+      run: |
+        # continue-on-error lets us always collect logs and notify; capture the
+        # real exit code so a later step can tell a clean run (tmt 0=all pass,
+        # 1=some failed) from an aborted one (2 = tmt error, 255 = ssh/VM died).
+        set +e
+        sudo vagrant ssh almalinux -c "sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=$PATH:/usr/local/bin; cd /compose-tests; tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }}'"
+        rc=$?
+        echo "[Debug] tmt exit code: ${rc}"
+        echo "tmt_rc=${rc}" >> "$GITHUB_OUTPUT"
+        exit ${rc}
 
     - name: Print tests results
       run: |
@@ -425,29 +446,48 @@ jobs:
         name: ${{ matrix.variant }} tests output
         path: ${{github.action_path}}/output.tar
 
-    - name: Get list of failed tests
-      if: job.steps.run-tests.status == failure()
+    - name: Evaluate test results
+      id: eval
+      if: always()
       run: |
-        # Install 'yq'
-        sudo vagrant ssh almalinux -c 'sudo dnf -y -q install wget'
-        sudo vagrant ssh almalinux -c 'sudo wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq'
-        sudo vagrant ssh almalinux -c 'sudo chmod +x /usr/bin/yq'
-        sudo vagrant ssh almalinux -c 'sudo /usr/bin/yq --version'
+        set +e
+        # Install 'yq' in the VM, tally results, and build the failed-tests list.
+        sudo vagrant ssh almalinux -c 'sudo dnf -y -q install wget' || true
+        sudo vagrant ssh almalinux -c 'sudo wget -q https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq' || true
+        sudo vagrant ssh almalinux -c 'sudo chmod +x /usr/bin/yq' || true
+        sudo vagrant ssh almalinux -c "sudo sh -c 'chmod +x /vagrant/ct-eval.sh; /vagrant/ct-eval.sh'" || true
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/tests_failed.txt ./tests_failed.txt || true
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/tests_stats.txt  ./tests_stats.txt  || true
+        sudo chmod a+r ./tests_failed.txt ./tests_stats.txt 2>/dev/null || true
 
-        # Create failed tests list
-        sudo vagrant ssh almalinux -c "sudo sh -c 'chmod +x /vagrant/yq.sh; /vagrant/yq.sh'"
-        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/tests_failed.txt ${{github.action_path}}/tests_failed.txt
-        sudo chmod a+r ${{github.action_path}}/tests_failed.txt
+        total=0; passed=0; failed=0
+        [ -f ./tests_stats.txt ] && source ./tests_stats.txt
+        echo "total=${total}"   >> "$GITHUB_OUTPUT"
+        echo "passed=${passed}" >> "$GITHUB_OUTPUT"
+        echo "failed=${failed}" >> "$GITHUB_OUTPUT"
+
+        # Completeness: a clean tmt run exits 0 (all pass) or 1 (some failed).
+        # Anything else (2 = tmt error, 255 = ssh/VM died) or zero recorded
+        # results means the run was aborted before finishing.
+        rc='${{ steps.run-tests.outputs.tmt_rc }}'
+        incomplete=false
+        case "${rc}" in 0|1) ;; *) incomplete=true ;; esac
+        [ "${total}" -eq 0 ] && incomplete=true
+        echo "incomplete=${incomplete}" >> "$GITHUB_OUTPUT"
+
+        echo "[Debug] total=${total} passed=${passed} failed=${failed} tmt_rc=${rc} incomplete=${incomplete}"
 
     - name: Re-run failed tests, prepare tests summary
-      if: job.steps.run-tests.status == failure()
+      # Only when the run completed and recorded failures; an aborted run is
+      # handled by the completeness gate at the end of the job.
+      if: ${{ always() && steps.eval.outputs.incomplete == 'false' && steps.eval.outputs.failed != '0' }}
       run: |
         # Tests results and the step exit code
         rerun_results=
         exit_code=0
 
         # Read failed tests list
-        for test_failed in $(cat ${{github.action_path}}/tests_failed.txt | xargs); do
+        for test_failed in $(cat ./tests_failed.txt | xargs); do
           echo "[Debug] Re-run '${test_failed}'"
 
           # Include failed test name into resiults summary
@@ -492,11 +532,20 @@ jobs:
             'pungi - ${{ inputs.pungi_repository && '✅' || '❌' }}',
             'default repos - ${{ inputs.disable_default_repos && '❌' || '✅' }}',
           ];
-          const failed = [${{ env.rerun_results }}];
-          // 'summary_header' is only set on the failed-tests path; otherwise
-          // derive it from the (continue-on-error) test step's outcome.
-          const header = '${{ env.summary_header }}'
-            || ('${{ steps['run-tests'].outcome }}' === 'success' ? '✅ All tests pass.' : '❌ Some tests failed.');
+          // Re-run annotated failures (set only when the re-run step ran).
+          const rerun = [${{ env.rerun_results }}];
+
+          const passed     = parseInt('${{ steps.eval.outputs.passed }}' || '0', 10);
+          const failed     = parseInt('${{ steps.eval.outputs.failed }}' || '0', 10);
+          const total      = parseInt('${{ steps.eval.outputs.total  }}' || '0', 10);
+          const incomplete = '${{ steps.eval.outputs.incomplete }}' === 'true';
+          const rc         = '${{ steps.run-tests.outputs.tmt_rc }}';
+
+          let header;
+          if (incomplete) header = `⚠️ Test run did NOT complete — only ${total} results recorded (tmt exit ${rc}).`;
+          else if (failed > 0) header = `❌ ${failed} of ${total} tests failed.`;
+          else header = `✅ All ${total} tests passed.`;
+          const counts = `Passed: ${passed} · Failed: ${failed} · Total: ${total}`;
 
           // Run-page summary
           core.summary
@@ -504,7 +553,8 @@ jobs:
               .addHeading('Used repositories:', '4')
               .addList(repos, true)
               .addHeading(header, '4')
-              .addList(failed, true)
+              .addRaw(counts).addBreak()
+              .addList(rerun, true)
               .write();
 
           // Markdown text for the Mattermost notification
@@ -513,11 +563,12 @@ jobs:
             '#### AlmaLinux ${{ matrix.variant }} (${{ env.basearch }}) — compose tests',
             '**${{ env.system_release }}**',
             '',
+            header,
+            counts,
+            '',
             '**Used repositories:**',
             ...repos.map(r => '- ' + r),
-            '',
-            '**' + header + '**',
-            ...failed.map(f => '- ' + f),
+            ...(rerun.length ? ['', '**Re-run failed tests:**', ...rerun.map(r => '- ' + r)] : []),
             '',
             '[Workflow run](' + runUrl + ')',
           ].join('\n');
@@ -534,3 +585,12 @@ jobs:
         MATTERMOST_USERNAME: ${{ github.triggering_actor }}
         TEXT: |
           ${{ steps.summary.outputs.text }}
+
+    - name: Fail if the test run did not complete
+      # Runs last (after notification) so an aborted/incomplete run — e.g. a test
+      # that wedges the VM, leaving an empty results.yaml — is reported as a
+      # failure instead of a false green.
+      if: ${{ always() && steps.eval.outputs.incomplete == 'true' }}
+      run: |
+        echo "::error::Test run did not complete: tmt exit '${{ steps.run-tests.outputs.tmt_rc }}', ${{ steps.eval.outputs.total }} results recorded."
+        exit 1
