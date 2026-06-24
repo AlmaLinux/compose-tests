@@ -1,5 +1,9 @@
 name: almalinux-compose-test
 
+run-name: >-
+  AlmaLinux ${{ inputs.version_major }} compose test
+  (${{ inputs.run_x86_64 && 'x86_64' || '' }}${{ inputs.run_x86_64 && inputs.run_arm64 && ' + ' || '' }}${{ inputs.run_arm64 && 'aarch64' || '' }})${{ inputs.pungi_repository && ' +pungi' || '' }}${{ inputs.pulp_repository && ' +pulp' || '' }}
+
 # Orchestrator: a single dispatch runs the compose tests on x86_64 (incl.
 # x86_64_v2) and aarch64 as parallel child jobs via reusable workflows.
 # The per-arch workflows can still be run on their own from the Actions UI.
