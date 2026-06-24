@@ -8,9 +8,12 @@ test_toml=${blueprint}.toml
 image_type=qcow2
 check_type=qcow
 
-# Maximum amount of time (wait_sec*wait_count) to wait for the image to be created
-wait_sec=20
-wait_count=45
+# Maximum wall-clock time (seconds) to wait for the image to be created,
+# how often to poll, and a hard cap on each individual composer-cli call so a
+# wedged osbuild-composer backend can never block the loop indefinitely.
+wait_max=900
+poll_sec=20
+cli_timeout=60
 
 t_Log "Running $0 - osbuild: start to build '$blueprint' image, type '$image_type'"
 
@@ -44,33 +47,41 @@ t_Log "Running $0 - osbuild: depsolve the '$blueprint' blueprint"
 composer-cli blueprints depsolve $blueprint || t_CheckExitStatus $?
 
 t_Log "Running $0 - osbuild: start building '$blueprint' blueprint"
-compose_id=$( composer-cli compose start $blueprint $image_type \
+compose_id=$( timeout ${cli_timeout} composer-cli compose start $blueprint $image_type \
 | grep -E 'Compose|added|queue' \
 | sed 's/^Compose \+\(.\+\) \+added \+to \+the \+queue$/\1/g' )
 
 test -n "$compose_id" || t_CheckExitStatus $?
 
-t_Log "Running $0 - osbuild: wait $(($wait_sec*$wait_count)) seconds (maximum) for the image (ID '$compose_id') to be created ..."
-count=1
+# Poll until the build FINISHED/FAILED or the wall-clock deadline is reached.
+# Each composer-cli call is bounded by 'timeout', and the loop is bounded by an
+# absolute deadline, so a hung backend fails the test fast instead of blocking
+# forever (the old count-based guard only counted iterations, not the time spent
+# inside a blocked composer-cli call).
+t_Log "Running $0 - osbuild: wait ${wait_max} seconds (maximum) for the image (ID '$compose_id') to be created ..."
+start_time=$( date +%s )
+deadline=$(( start_time + wait_max ))
 while true; do
-    composer-cli compose status | grep $compose_id | grep 'FINISHED' >/dev/null 2>&1
-    [ $? -eq 0 ] && break
-    # Fail the test if the image build FAILED
-    composer-cli compose status | grep $compose_id | grep 'FAILED' >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        t_Log "$( composer-cli compose log $compose_id )"
+    status=$( timeout ${cli_timeout} composer-cli compose status 2>/dev/null | grep "$compose_id" )
+    case "$status" in
+        *FINISHED*) break ;;
+        # Fail the test if the image build FAILED
+        *FAILED*)
+            t_Log "$( timeout ${cli_timeout} composer-cli compose log $compose_id )"
+            t_CheckExitStatus 1
+            ;;
+    esac
+    if [ "$( date +%s )" -ge "$deadline" ]; then
+        t_Log "Running $0 - osbuild: timed out after ${wait_max} seconds waiting for the image"
         t_CheckExitStatus 1
     fi
-    sleep ${wait_sec}s
-    count=$(($count+1))
-    [ $count -gt $wait_count ] && break
+    sleep ${poll_sec}s
 done
-test $count -le $wait_count || t_CheckExitStatus $?
 
-t_Log "Running $0 - osbuild: the creation completed in ~ $(($wait_sec*$count)) seconds."
+t_Log "Running $0 - osbuild: the creation completed in ~ $(( $( date +%s ) - start_time )) seconds."
 
 t_Log "Running $0 - osbuild: download the resulting image file ..."
-composer-cli compose image $compose_id >/dev/null || t_CheckExitStatus $?
+timeout ${cli_timeout} composer-cli compose image $compose_id >/dev/null || t_CheckExitStatus $?
 
 t_Log "Running $0 - osbuild: test the ${compose_id}-disk.${image_type} image file"
 file --brief ${compose_id}-disk.${image_type} | grep -i $check_type >/dev/null

@@ -468,6 +468,11 @@ jobs:
       id: run-tests
       continue-on-error: true
       run: |
+        # continue-on-error lets us always collect logs and notify; capture the
+        # real exit code so a later step can tell a clean run (tmt 0=all pass,
+        # 1=some failed) from an aborted one (e.g. 255 = the SSH session/instance
+        # died mid-run, 2 = tmt error).
+        set +e
         ssh ${{ env.ssh_host }} 'sudo bash -s' <<'REMOTE'
         export pungi_repository=${{ inputs.pungi_repository }}
         export pulp_repository=${{ inputs.pulp_repository }}
@@ -475,6 +480,10 @@ jobs:
         cd /compose-tests
         tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }}
         REMOTE
+        rc=$?
+        echo "[Debug] tmt/ssh exit code: ${rc}"
+        echo "tmt_rc=${rc}" >> "$GITHUB_OUTPUT"
+        exit ${rc}
 
     - name: ${{ inputs.version_major }} tests results
       run: |
@@ -523,30 +532,50 @@ jobs:
         name: Tests output
         path: ${{ env.artifacts_dir }}/output.tar
 
-    - name: Get list of failed tests
-      if: job.steps.run-tests.status == failure()
+    - name: Evaluate test results
+      id: eval
+      if: always()
       run: |
-        ssh ${{ env.ssh_host }} 'sudo bash -s' <<'REMOTE'
-        # Install 'yq'
-        curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
-        chmod +x /usr/bin/yq
-        /usr/bin/yq --version
+        # Tally the collected results.yaml, build the failed-tests list, and
+        # decide whether the run actually completed.
+        if ! command -v yq >/dev/null 2>&1; then
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+        fi
 
-        # Create failed tests list
-        yq --no-doc '.[] | select(.result == "fail" or .result == "error") | .name' \
-          $(find ${{ env.tmt_run_dir }}/plans/*/execute -name results.yaml | xargs) \
-          > ${{ env.tmt_run_dir }}/tests_failed.txt
+        shopt -s nullglob
+        total=0; passed=0; failed=0; errored=0
+        : > "${artifacts_dir}/tests_failed.txt"
+        for f in "${artifacts_dir}"/*.results.yaml; do
+          total=$((  total   + $(yq '. | length'                                  "$f" 2>/dev/null || echo 0) ))
+          passed=$(( passed  + $(yq '[.[] | select(.result == "pass")]  | length' "$f" 2>/dev/null || echo 0) ))
+          failed=$(( failed  + $(yq '[.[] | select(.result == "fail")]  | length' "$f" 2>/dev/null || echo 0) ))
+          errored=$((errored + $(yq '[.[] | select(.result == "error")] | length' "$f" 2>/dev/null || echo 0) ))
+          yq '.[] | select(.result == "fail" or .result == "error") | .name' "$f" 2>/dev/null \
+            >> "${artifacts_dir}/tests_failed.txt"
+        done
+        failed_total=$(( failed + errored ))
 
-        echo "[Debug] failed tests:"
-        cat ${{ env.tmt_run_dir }}/tests_failed.txt
+        echo "total=${total}"         >> "$GITHUB_OUTPUT"
+        echo "passed=${passed}"       >> "$GITHUB_OUTPUT"
+        echo "failed=${failed_total}" >> "$GITHUB_OUTPUT"
 
-        cp -av ${{ env.tmt_run_dir }}/tests_failed.txt /tmp/tests_failed.txt
-        chmod a+r /tmp/tests_failed.txt
-        REMOTE
-        scp ${{ env.ssh_host }}:/tmp/tests_failed.txt "${{ env.artifacts_dir }}/tests_failed.txt"
+        # Completeness: a clean tmt run exits 0 (all pass) or 1 (some failed).
+        # Anything else (255 = SSH/instance died mid-run, 2 = tmt error, ...) or
+        # zero recorded results means the run was aborted before finishing.
+        rc='${{ steps.run-tests.outputs.tmt_rc }}'
+        incomplete=false
+        case "${rc}" in 0|1) ;; *) incomplete=true ;; esac
+        [ "${total}" -eq 0 ] && incomplete=true
+        echo "incomplete=${incomplete}" >> "$GITHUB_OUTPUT"
+
+        echo "[Debug] total=${total} passed=${passed} failed=${failed_total} tmt_rc=${rc} incomplete=${incomplete}"
 
     - name: Re-run failed tests, prepare tests summary
-      if: job.steps.run-tests.status == failure()
+      # Only when the run completed and recorded failures; an aborted run is
+      # handled by the completeness gate at the end of the job.
+      if: ${{ always() && steps.eval.outputs.incomplete == 'false' && steps.eval.outputs.failed != '0' }}
       run: |
         # Tests results and the step exit code
         rerun_results=
@@ -599,11 +628,20 @@ jobs:
             'pungi - ${{ inputs.pungi_repository && '✅' || '❌' }}',
             'default repos - ${{ inputs.disable_default_repos && '❌' || '✅' }}',
           ];
-          const failed = [${{ env.rerun_results }}];
-          // 'summary_header' is only set on the failed-tests path; otherwise
-          // derive it from the (continue-on-error) test step's outcome.
-          const header = '${{ env.summary_header }}'
-            || ('${{ steps['run-tests'].outcome }}' === 'success' ? '✅ All tests pass.' : '❌ Some tests failed.');
+          // Re-run annotated failures (set only when the re-run step ran).
+          const rerun = [${{ env.rerun_results }}];
+
+          const passed     = parseInt('${{ steps.eval.outputs.passed }}' || '0', 10);
+          const failed     = parseInt('${{ steps.eval.outputs.failed }}' || '0', 10);
+          const total      = parseInt('${{ steps.eval.outputs.total  }}' || '0', 10);
+          const incomplete = '${{ steps.eval.outputs.incomplete }}' === 'true';
+          const rc         = '${{ steps.run-tests.outputs.tmt_rc }}';
+
+          let header;
+          if (incomplete) header = `⚠️ Test run did NOT complete — only ${total} results recorded (tmt/ssh exit ${rc}).`;
+          else if (failed > 0) header = `❌ ${failed} of ${total} tests failed.`;
+          else header = `✅ All ${total} tests passed.`;
+          const counts = `Passed: ${passed} · Failed: ${failed} · Total: ${total}`;
 
           // Run-page summary
           core.summary
@@ -611,7 +649,8 @@ jobs:
               .addHeading('Used repositories:', '4')
               .addList(repos, true)
               .addHeading(header, '4')
-              .addList(failed, true)
+              .addRaw(counts).addBreak()
+              .addList(rerun, true)
               .write();
 
           // Markdown text for the Mattermost notification
@@ -620,11 +659,12 @@ jobs:
             '#### AlmaLinux ${{ inputs.version_major }} aarch64 — compose tests',
             '**${{ env.system_release }}**',
             '',
+            header,
+            counts,
+            '',
             '**Used repositories:**',
             ...repos.map(r => '- ' + r),
-            '',
-            '**' + header + '**',
-            ...failed.map(f => '- ' + f),
+            ...(rerun.length ? ['', '**Re-run failed tests:**', ...rerun.map(r => '- ' + r)] : []),
             '',
             '[Workflow run](' + runUrl + ')',
           ].join('\n');
@@ -658,3 +698,12 @@ jobs:
             --group-id ${{ secrets.EC2_SECURITY_GROUP_ID }} \
             --protocol tcp --port 22 --cidr "${{ env.runner_ip }}/32" || true
         fi
+
+    - name: Fail if the test run did not complete
+      # Runs last (after notification and cleanup) so an aborted/incomplete run —
+      # e.g. a test that kills the SSH session, leaving an empty results.yaml —
+      # is reported as a failure instead of a false green.
+      if: ${{ always() && steps.eval.outputs.incomplete == 'true' }}
+      run: |
+        echo "::error::Test run did not complete: tmt/ssh exit '${{ steps.run-tests.outputs.tmt_rc }}', ${{ steps.eval.outputs.total }} results recorded."
+        exit 1
