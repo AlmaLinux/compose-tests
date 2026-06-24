@@ -629,9 +629,9 @@ jobs:
         result-encoding: string
         script: |
           const repos = [
-            'pulp - ${{ inputs.pulp_repository && '✅' || '❌' }}',
-            'pungi - ${{ inputs.pungi_repository && '✅' || '❌' }}',
-            'default repos - ${{ inputs.disable_default_repos && '❌' || '✅' }}',
+            'pulp - ${{ inputs.pulp_repository && '➕' || '➖' }}',
+            'pungi - ${{ inputs.pungi_repository && '➕' || '➖' }}',
+            'default repos - ${{ inputs.disable_default_repos && '➖' || '➕' }}',
           ];
           // Re-run annotated failures (set only when the re-run step ran).
           const rerun = [${{ env.rerun_results }}];
@@ -642,21 +642,31 @@ jobs:
           const incomplete = '${{ steps.eval.outputs.incomplete }}' === 'true';
           const rc         = '${{ steps.run-tests.outputs.tmt_rc }}';
 
+          // The counts above are the FIRST run. Reconcile them with the re-run
+          // outcomes: entries are annotated '… [re-run ✅]' (recovered) /
+          // '… [re-run ❌]' (still failing); unmarked means re-run was disabled.
+          const reran        = rerun.some(r => r.includes('[re-run'));
+          const recovered    = rerun.filter(r => r.includes('✅')).length;
+          const stillFailing = rerun.length - recovered;
+
           let header;
           if (incomplete) header = `⚠️ Test run did NOT complete — only ${total} results recorded (tmt/ssh exit ${rc}).`;
-          else if (failed > 0) header = `❌ ${failed} of ${total} tests failed.`;
+          else if (stillFailing > 0) header = `❌ ${stillFailing} of ${total} tests failed.`;
+          else if (recovered > 0) header = `✅ All ${total} tests passed (${recovered} recovered on re-run).`;
           else header = `✅ All ${total} tests passed.`;
+
           const counts = `Passed: ${passed} · Failed: ${failed} · Total: ${total}`;
+          const rerunLine = reran ? `Re-run — recovered: ${recovered} · still failing: ${stillFailing}` : '';
 
           // Run-page summary
-          core.summary
+          let summary = core.summary
               .addHeading('${{ env.system_release }}', '4')
               .addHeading('Used repositories:', '4')
               .addList(repos, true)
               .addHeading(header, '4')
-              .addRaw(counts).addBreak()
-              .addList(rerun, true)
-              .write();
+              .addRaw(counts).addBreak();
+          if (rerunLine) summary = summary.addRaw(rerunLine).addBreak();
+          summary.addList(rerun, true).write();
 
           // Markdown text for the Mattermost notification
           const runUrl = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
@@ -666,6 +676,7 @@ jobs:
             '',
             header,
             counts,
+            ...(rerunLine ? [rerunLine] : []),
             '',
             '**Used repositories:**',
             ...repos.map(r => '- ' + r),
