@@ -631,6 +631,7 @@ jobs:
           const repos = [
             'pulp - ${{ inputs.pulp_repository && '➕' || '➖' }}',
             'pungi - ${{ inputs.pungi_repository && '➕' || '➖' }}',
+            'testing - ${{ inputs.testing_repository && '➕' || '➖' }}',
             'default repos - ${{ inputs.disable_default_repos && '➖' || '➕' }}',
           ];
           // Re-run annotated failures (set only when the re-run step ran).
