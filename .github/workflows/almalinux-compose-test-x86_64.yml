@@ -1,5 +1,7 @@
 name: almalinux-compose-test-x86_64
 
+run-name: AlmaLinux ${{ inputs.version_major }} compose test (x86_64)${{ inputs.pungi_repository && ' +pungi' || '' }}${{ inputs.pulp_repository && ' +pulp' || '' }}
+
 on:
   workflow_dispatch:
       inputs:
