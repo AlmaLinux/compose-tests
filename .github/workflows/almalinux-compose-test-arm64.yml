@@ -256,17 +256,38 @@ jobs:
         systemctl enable --now selfdestruct.timer
         USERDATA
 
-        instance_id=$(aws ec2 run-instances \
-          --image-id ${{ env.AMI_ID }} \
-          --instance-type c7g.xlarge \
-          --subnet-id ${{ secrets.EC2_SUBNET_ID }} \
-          --security-group-ids ${{ secrets.EC2_SECURITY_GROUP_ID }} \
-          --associate-public-ip-address \
-          --instance-initiated-shutdown-behavior terminate \
-          --user-data file:///tmp/userdata.sh \
-          --block-device-mappings "[{\"DeviceName\":\"${root_dev}\",\"Ebs\":{\"VolumeSize\":30,\"VolumeType\":\"gp3\",\"DeleteOnTermination\":true}}]" \
-          --tag-specifications 'ResourceType=instance,Tags=[{Key=Project,Value=GitHub Actions Self-hosted Runners},{Key=Name,Value=compose-test-arm64-${{ github.run_id }}}]' \
-          --query 'Instances[0].InstanceId' --output text)
+        # The subnet pins us to a single AZ, whose capacity for a given type can
+        # run out (InsufficientInstanceCapacity). Try a few equivalent Graviton
+        # types in order, falling through only on a capacity error; any other
+        # error fails immediately. All are 4 vCPU (c7g/m7g/c6g = 8GB, t4g = 16GB).
+        instance_id=
+        for itype in c7g.xlarge m7g.xlarge c6g.xlarge t4g.xlarge; do
+          echo "[Debug] Trying instance type ${itype}"
+          instance_id=$(aws ec2 run-instances \
+            --image-id ${{ env.AMI_ID }} \
+            --instance-type "${itype}" \
+            --subnet-id ${{ secrets.EC2_SUBNET_ID }} \
+            --security-group-ids ${{ secrets.EC2_SECURITY_GROUP_ID }} \
+            --associate-public-ip-address \
+            --instance-initiated-shutdown-behavior terminate \
+            --user-data file:///tmp/userdata.sh \
+            --block-device-mappings "[{\"DeviceName\":\"${root_dev}\",\"Ebs\":{\"VolumeSize\":30,\"VolumeType\":\"gp3\",\"DeleteOnTermination\":true}}]" \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Project,Value=GitHub Actions Self-hosted Runners},{Key=Name,Value=compose-test-arm64-${{ github.run_id }}}]' \
+            --query 'Instances[0].InstanceId' --output text 2>/tmp/run-instances.err) && break
+          instance_id=
+          if grep -q 'InsufficientInstanceCapacity' /tmp/run-instances.err; then
+            echo "[Debug] No ${itype} capacity in this AZ, trying the next type..."
+            continue
+          fi
+          # Any other error is fatal
+          cat /tmp/run-instances.err >&2
+          exit 1
+        done
+
+        if [ -z "${instance_id}" ]; then
+          echo "[Error] Could not launch any instance type (no capacity in this AZ)." >&2
+          exit 1
+        fi
 
         echo "[Debug] Launched instance: ${instance_id}"
         echo "instance_id=${instance_id}" >> $GITHUB_ENV
