@@ -39,6 +39,35 @@ on:
           type: boolean
           default: true
 
+  # Allow this workflow to be called from the 'almalinux-compose-test' orchestrator.
+  # 'workflow_call' has no 'choice' input type, so 'version_major' is a string here.
+  workflow_call:
+    inputs:
+      version_major:
+        description: 'AlmaLinux major version'
+        required: true
+        type: string
+      pungi_repository:
+        description: 'Add pungi repositories'
+        type: boolean
+        default: false
+      pulp_repository:
+        description: 'Add pulp repositories'
+        type: boolean
+        default: true
+      testing_repository:
+        description: 'Add testing repository'
+        type: boolean
+        default: false
+      disable_default_repos:
+        description: 'Disable system default repositories'
+        type: boolean
+        default: false
+      rerun_failed:
+        description: 'Re-run failed tests'
+        type: boolean
+        default: true
+
 jobs:
   compose-test:
     name: AlmaLinux ${{ matrix.variant }}
