@@ -198,16 +198,6 @@ jobs:
         mkdir -p ~/.ssh && chmod 700 ~/.ssh
         ssh-keygen -t ed25519 -f ~/.ssh/id_ec2 -N '' -q
 
-    - name: Allow SSH from the runner
-      run: |
-        # Open inbound SSH on the shared security group, scoped to this runner's IP.
-        # The rule is revoked in the 'Cleanup AWS resources' step.
-        runner_ip=$(curl -fsS https://checkip.amazonaws.com)
-        aws ec2 authorize-security-group-ingress \
-          --group-id ${{ secrets.EC2_SECURITY_GROUP_ID }} \
-          --protocol tcp --port 22 --cidr "${runner_ip}/32" || true
-        echo "runner_ip=${runner_ip}" >> $GITHUB_ENV
-
     - name: Launch EC2 instance
       run: |
         # Match the instance's root device name so the size override is applied to it
@@ -728,13 +718,6 @@ jobs:
           echo "[Debug] Terminating ${{ env.instance_id }}"
           aws ec2 terminate-instances --instance-ids ${{ env.instance_id }} || true
           aws ec2 wait instance-terminated --instance-ids ${{ env.instance_id }} || true
-        fi
-
-        # Revoke the temporary SSH ingress rule
-        if [ -n "${{ env.runner_ip }}" ]; then
-          aws ec2 revoke-security-group-ingress \
-            --group-id ${{ secrets.EC2_SECURITY_GROUP_ID }} \
-            --protocol tcp --port 22 --cidr "${{ env.runner_ip }}/32" || true
         fi
 
     - name: Fail if the test run did not complete
