@@ -430,8 +430,12 @@ jobs:
 
     - name: Collect tests output
       run: |
-        sudo vagrant ssh almalinux -c 'sudo sh -c "cd ${{ env.tmt_run_dir }}/; tar cf output.tar plans/legacy/execute/data/guest/default-0/tests/legacy/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/*/output.txt plans/ng/execute/data/guest/default-0/tests/*/*/*/output.txt"'
-        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/output.tar ${{github.action_path}}/output.tar
+        # Collect whatever output.txt exist (any plan/depth) and tolerate none, so
+        # a partial run (e.g. an ng-plan prepare failure that leaves no ng output)
+        # doesn't fail here. The run failure itself is reported by the completeness
+        # gate ('Fail if the test run did not complete'), not by this step.
+        sudo vagrant ssh almalinux -c 'sudo sh -c "cd ${{ env.tmt_run_dir }}/; tar cf output.tar $( find . -name output.txt ) || true"'
+        sudo vagrant scp almalinux:${{ env.tmt_run_dir }}/output.tar ${{github.action_path}}/output.tar || true
 
     - uses: actions/upload-artifact@v6
       with:
