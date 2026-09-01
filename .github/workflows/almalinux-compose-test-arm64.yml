@@ -152,7 +152,8 @@ jobs:
         echo "pulp_crb_repo=${pulp_crb_repo}" >> $GITHUB_ENV
         echo "dnf_extras_repo=${dnf_extras_repo}" >> $GITHUB_ENV
 
-        # TMT extra options
+        # TMT extra options; these go right after 'tmt', before the
+        # subcommand -- tmt 1.78 dropped the step-level '--feeling-safe'.
         echo "tmt_options=${tmt_options}" >> $GITHUB_ENV
 
         # RPM_GPG_KEY file
@@ -496,7 +497,7 @@ jobs:
         export pulp_repository=${{ inputs.pulp_repository }}
         export PATH=$PATH:/usr/local/bin
         cd /compose-tests
-        tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }}
+        tmt ${{ env.tmt_options }} -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local
         REMOTE
         rc=$?
         echo "[Debug] tmt/ssh exit code: ${rc}"
@@ -608,7 +609,7 @@ jobs:
 
           # Re-run specific failed test
           if [ "${{ inputs.rerun_failed }}" = "true" ]; then
-            if ssh ${{ env.ssh_host }} "sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=\$PATH:/usr/local/bin; cd /compose-tests; tmt -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local ${{ env.tmt_options }} test --name ${test_failed}'"; then
+            if ssh ${{ env.ssh_host }} "sudo sh -c 'export pungi_repository=${{ inputs.pungi_repository }}; export pulp_repository=${{ inputs.pulp_repository }}; export PATH=\$PATH:/usr/local/bin; cd /compose-tests; tmt ${{ env.tmt_options }} -vvv -c distro=centos-stream-${{ env.release_version }} run --all provision --how=local test --name ${test_failed}'"; then
               test_result="${test_failed} [re-run ✅]"
             else
               test_result="${test_failed} [re-run ❌]"
