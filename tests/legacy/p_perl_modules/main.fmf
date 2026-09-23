@@ -5,4 +5,5 @@ description:
     they do not, dnf cannot resolve the contexts built for the other streams --
     it prints a "Modular dependency problems" block on every transaction while
     still exiting 0, and 'dnf module enable' fails outright.
+duration: 15m
 test: ./test.sh
