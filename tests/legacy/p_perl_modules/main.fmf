@@ -1,0 +1,8 @@
+summary: perl module streams resolve against every perl stream
+description:
+    The perl module family is built once per perl stream, one context each.
+    All contexts of a build batch must share a single modulemd version; when
+    they do not, dnf cannot resolve the contexts built for the other streams --
+    it prints a "Modular dependency problems" block on every transaction while
+    still exiting 0, and 'dnf module enable' fails outright.
+test: ./test.sh
