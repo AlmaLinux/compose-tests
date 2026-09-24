@@ -331,6 +331,27 @@ jobs:
         gpgkey=file://${{ env.rpm_gpg_key }},file:///etc/pki/rpm-gpg/RPM-GPG-KEY-NVIDIA-CUDA-${{ env.release_version }}
         EOF
 
+    - name: Publish tested repository state
+      # Digest of the Pulp repositories this job tests, published as the
+      # 'compose-state' annotation, so that whoever publishes these
+      # repositories can tell which state passed here (ci/compose_state.py).
+      # Informational for this job, so it never fails it.
+      if: inputs.pulp_repository
+      continue-on-error: true
+      timeout-minutes: 5
+      run: |
+        # Repositories the VM gets besides Pulp change what is tested, so
+        # they are recorded in the state too.
+        sources=pulp
+        if [ -f ./almalinux-testing-pulp.repo ]; then sources="${sources}+testing"; fi
+        if [ -f ./almalinux-pungi.repo ]; then sources="${sources}+pungi"; fi
+        python3 -c 'import yaml' 2>/dev/null || { sudo apt-get -y -q update && sudo apt-get -y -q install python3-yaml; }
+        state=$(python3 ci/compose_state.py pulp --version '${{ inputs.version_major }}' \
+          --arch '${{ env.basearch }}' --sources "${sources}")
+        echo "compose_sources=${sources}" >> "$GITHUB_ENV"
+        echo "compose_state=${state}" >> "$GITHUB_ENV"
+        echo "::notice title=compose-state::${state}"
+
     - name: Create results-eval script
       run: |
         # Runs inside the VM (synced as /vagrant): tally pass/fail/total from
@@ -584,6 +605,12 @@ jobs:
           if (rerunLine) summary = summary.addRaw(rerunLine).addBreak();
           summary.addList(rerun, true).write();
 
+          // Failure reason as the 'compose-fail' annotation of this job,
+          // readable without auth next to 'compose-state'.
+          if (incomplete || stillFailing > 0) {
+            core.error(`${header} ${rerun.join(', ')}`.trim().slice(0, 3800), { title: 'compose-fail' });
+          }
+
           // Markdown text for the Mattermost notification
           const runUrl = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
           const text = [
@@ -601,6 +628,23 @@ jobs:
             '[Workflow run](' + runUrl + ')',
           ].join('\n');
           core.setOutput('text', text);
+
+    - name: Check tested repository state drift
+      # Pulp may publish while the tests run; then the VM saw a mix of states
+      # and this job vouches for none of them. A failed re-digest is reported
+      # the same way, since the state could not be confirmed.
+      if: always() && env.compose_state != ''
+      continue-on-error: true
+      timeout-minutes: 5
+      run: |
+        if ! state=$(python3 ci/compose_state.py pulp --version '${{ inputs.version_major }}' \
+            --arch '${{ env.basearch }}' --sources "${compose_sources}"); then
+          echo "::warning title=compose-state-drift::unconfirmed, the re-digest after the tests failed"
+        elif [ "${state}" != "${compose_state}" ]; then
+          echo "::warning title=compose-state-drift::${state}"
+        else
+          echo "[Debug] Pulp state did not change during the tests"
+        fi
 
     - name: Send notification to Mattermost
       uses: mattermost/action-mattermost-notify@master
