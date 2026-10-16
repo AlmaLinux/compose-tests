@@ -138,3 +138,7 @@ In order to run only a set of tests on the different EL distro, you can use `tmt
 # Run tests that their name start with `/legacy/p_`
 tmt -vv -c distro=centos-stream-9 run -a provision --how=connect --guest=192.168.210.10 --user=somedefaultuser --become test --name '/legacy/p_.*'
 ```
+
+# License
+
+The tests in this repository are licensed under GPL-3.0-or-later (see `LICENSE`), except for `tests/legacy/`. Those tests were imported from the CentOS [t_functional](https://github.com/CentOS/sig-core-t_functional) suite, which has no repository-wide license. Files in `tests/legacy/` keep whatever license notice they carry, and files without a notice keep the terms they had in t_functional.
