@@ -1,7 +1,12 @@
 #!/usr/bin/expect -f
 # Author: Christoph Galuschka <tigalch@tigalch.org>
 
-set timeout 1
+# An emulated guest (the CI on forks) answers more slowly
+if {[info exists env(emulated_guest)] && $env(emulated_guest) eq "true"} {
+    set timeout 30
+} else {
+    set timeout 1
+}
 spawn telnet localhost 25
 expect "220 *"
 send -- "ehlo localhost\n"

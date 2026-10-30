@@ -2,6 +2,13 @@
 
 source ../functions.sh
 
+# In an emulated guest (the ppc64le and s390x CI on forks) building an image
+# takes more than an hour.
+if [ "x${emulated_guest}" = "xtrue" ]; then
+    t_Log "Running $0 - osbuild: emulated guest -> SKIP"
+    exit 0
+fi
+
 # Building an image needs loop devices and mounts a container does not get
 if [ "$CONTAINERTEST" -eq "1" ]; then
     t_Log "Running $0 - osbuild: running in container -> SKIP"
