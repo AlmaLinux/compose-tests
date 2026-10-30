@@ -2,3 +2,7 @@ summary: perf tests
 description: basic perf functionality tests
 test: ./test.sh
 framework: beakerlib
+adjust:
+  - when: container == yes
+    enabled: false
+    because: perf events of the runner's kernel, from a container

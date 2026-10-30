@@ -2,6 +2,12 @@
 
 source ../functions.sh
 
+# Building an image needs loop devices and mounts a container does not get
+if [ "$CONTAINERTEST" -eq "1" ]; then
+    t_Log "Running $0 - osbuild: running in container -> SKIP"
+    exit 0
+fi
+
 # osbuild-composer ships x86_64 (v3-baseline) repo definitions only — there is
 # no x86_64_v2 arch block in the repositories JSON, and the build chroot pulls
 # v3 glibc which aborts on a v2 host. Detect the v2 variant once via the

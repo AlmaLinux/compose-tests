@@ -6,3 +6,6 @@ enabled: true
 adjust:
   - when: distro == centos-7
     enabled: false
+  - when: container == yes
+    enabled: false
+    because: no nested containers

@@ -666,6 +666,21 @@ jobs:
           // Re-run annotated failures (set only when the re-run step ran).
           const rerun = [${{ env.rerun_results }}];
 
+          // Tests not run in the containers, hardcoded: the fmf adjust rules
+          // disable them for the tmt context container=yes, or they skip
+          // themselves when CONTAINERTEST=1
+          const skipped = [
+            '/tests/attr — a container may not mount a loop device',
+            '/tests/libbpf-tools — BPF programs on the runner\'s kernel, from a container',
+            '/tests/libvirt/net — a container may not create libvirt networks',
+            '/tests/perf — perf events of the runner\'s kernel, from a container',
+            '/tests/podman — no nested containers',
+            '/tests/selinux — no SELinux in a container',
+            '/tests/sysstat/iostat/cpu, /tests/sysstat/iostat/disk — a container may not drop the page cache',
+            '/tests/legacy/p_kvdo — kvdo is a kernel module',
+            '/tests/legacy/p_osbuild — an image build needs loop devices and mounts',
+            'parts of other /tests/legacy tests — checks needing a whole system skip themselves',
+          ];
 
           const passed     = parseInt('${{ steps.eval.outputs.passed }}' || '0', 10);
           const failed     = parseInt('${{ steps.eval.outputs.failed }}' || '0', 10);
@@ -697,7 +712,10 @@ jobs:
               .addHeading(header, '4')
               .addRaw(counts).addBreak();
           if (rerunLine) summary = summary.addRaw(rerunLine).addBreak();
-          summary.addList(rerun, true).write();
+          summary.addList(rerun, true)
+              .addHeading('Skipped in the containers:', '4')
+              .addList(skipped)
+              .write();
 
           // Failure reason as the 'compose-fail' annotation of this job
           if (incomplete || stillFailing > 0) {
@@ -717,6 +735,9 @@ jobs:
             '**Used repositories:**',
             ...repos.map(r => '- ' + r),
             ...(rerun.length ? ['', '**Re-run failed tests:**', ...rerun.map(r => '- ' + r)] : []),
+            '',
+            '**Skipped in the containers:**',
+            ...skipped.map(r => '- ' + r),
             '',
             '[Workflow run](' + runUrl + ')',
           ].join('\n');
