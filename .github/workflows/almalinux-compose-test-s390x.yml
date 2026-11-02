@@ -475,7 +475,15 @@ jobs:
         cd /compose-tests
         tmt ${{ env.tmt_options }} -vvv -c distro=centos-stream-${{ env.release_version }} -c container=yes run --all --environment pungi_repository=${{ inputs.pungi_repository }} --environment pulp_repository=${{ inputs.pulp_repository }} --environment CONTAINERTEST=1 --environment emulated_guest=${{ env.native != 'true' }} provision --how=local test --name "$(cat /tmp/ct-shard.regex)"
         REMOTE
+        # Count root's inotify instances while the tests run: their peak, and who
+        # held them, shows how near the runner's limit the tests get (see "Start
+        # the containers")
+        sudo ci/inotify-peak.sh "${{ runner.temp }}/inotify-peak" &
+        inotify_peak=$!
         ci/each-guest.sh 'sudo podman exec -i $guest bash -s < /tmp/ct-run.sh; echo $? > ./tmt_rc.$guest'
+        sudo pkill -f ci/inotify-peak.sh; wait ${inotify_peak}
+        echo "[Debug] inotify instances in use at the peak while testing: $(head -1 "${{ runner.temp }}/inotify-peak") (of root, limit $(cat /proc/sys/fs/inotify/max_user_instances))"
+        tail -n +2 "${{ runner.temp }}/inotify-peak" | expand -t 6,20 | sed 's/^/[Debug]   /'
         # The worst exit code of the containers: one outside 0/1 (2 = tmt error,
         # others = the container died) wins over 1 (some failed) over 0 (all pass).
         rc=0
