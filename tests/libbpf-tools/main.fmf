@@ -4,5 +4,8 @@ test: ./test.sh
 framework: beakerlib
 enabled: true
 adjust:
-  when: distro == centos-7 or distro == centos-stream-8
-  enabled: false
+  - when: distro == centos-7 or distro == centos-stream-8
+    enabled: false
+  - when: container == yes
+    enabled: false
+    because: BPF programs on the runner's kernel, from a container

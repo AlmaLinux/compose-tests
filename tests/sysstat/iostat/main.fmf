@@ -1,0 +1,4 @@
+adjust:
+  - when: container == yes
+    enabled: false
+    because: a container may not drop the page cache

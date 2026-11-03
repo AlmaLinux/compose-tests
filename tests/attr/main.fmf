@@ -2,3 +2,7 @@ summary: attr smoke tests
 description: Verify that attr works as expected
 test: ./test.sh
 framework: beakerlib
+adjust:
+  - when: container == yes
+    enabled: false
+    because: a container may not mount a loop device

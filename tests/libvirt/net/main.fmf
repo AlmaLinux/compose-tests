@@ -1,3 +1,7 @@
 summary: libvirt networking smoke tests
 description: libvirt networking smoke tests
 enabled: true
+adjust+:
+  - when: container == yes
+    enabled: false
+    because: a container may not create libvirt networks

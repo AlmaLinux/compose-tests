@@ -210,7 +210,12 @@ function t_GetPkgVer
 # Description: get the arch
 function t_GetArch
 {
-	rpm -q kernel --queryformat '%{arch}\n' | head -n 1
+	if rpm -q kernel > /dev/null 2>&1; then
+		rpm -q kernel --queryformat '%{arch}\n' | head -n 1
+	else
+		# A container has no kernel package
+		uname -m
+	fi
 }
 
 # Set the arch

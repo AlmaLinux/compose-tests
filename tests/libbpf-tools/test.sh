@@ -66,6 +66,8 @@ rlJournalStart
   rlPhaseEnd
 
 for tool in "${tools_versions_test[@]}"; do
+  # Not shipped for s390x
+  [ "${tool}" = bpf-numamove ] && [ "$(uname -m)" = s390x ] && continue
   rlPhaseStartTest "${tool} get version"
   rlRun "${tool} -V"
   rlPhaseEnd

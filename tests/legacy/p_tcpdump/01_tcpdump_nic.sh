@@ -4,6 +4,11 @@
 
 t_Log "Running $0 - TCPdump test to Default-GW with IPv4"
 
+if [ "$CONTAINERTEST" -eq "1" ]; then
+    t_Log "Running in container -> SKIP"
+    exit 0
+fi
+
 # Grabing Default-Router if NIC
 def_gw_out=$(ip route list default|grep "default via"|head -n 1)
 def_gw=$(echo $def_gw_out | awk '{print $3}')
