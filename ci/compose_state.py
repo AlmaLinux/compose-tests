@@ -42,7 +42,7 @@ PULP_BASE = 'https://build.almalinux.org/pulp/content/prod/'
 #   copy: <root>/<key>/<arch>/os/
 GATED = {
     '8': {
-        'arches': ['x86_64', 'aarch64'],
+        'arches': ['x86_64', 'aarch64', 'ppc64le', 's390x'],
         'repos': {
             'BaseOS': 'almalinux-8-baseos',
             'AppStream': 'almalinux-8-appstream',
@@ -51,7 +51,7 @@ GATED = {
         },
     },
     '9': {
-        'arches': ['x86_64', 'aarch64'],
+        'arches': ['x86_64', 'aarch64', 'ppc64le', 's390x'],
         'repos': {
             'BaseOS': 'almalinux-9-baseos',
             'AppStream': 'almalinux-9-appstream',
@@ -60,7 +60,7 @@ GATED = {
         },
     },
     '10': {
-        'arches': ['x86_64', 'x86_64_v2', 'aarch64'],
+        'arches': ['x86_64', 'x86_64_v2', 'aarch64', 'ppc64le', 's390x'],
         'repos': {
             'BaseOS': 'almalinux-10-baseos',
             'AppStream': 'almalinux-10-appstream',
@@ -69,7 +69,7 @@ GATED = {
         },
     },
     '10-kitten': {
-        'arches': ['x86_64', 'x86_64_v2', 'aarch64'],
+        'arches': ['x86_64', 'x86_64_v2', 'aarch64', 'ppc64le', 's390x'],
         'repos': {
             'BaseOS': 'almalinux-kitten-10-baseos',
             'AppStream': 'almalinux-kitten-10-appstream',
@@ -229,7 +229,7 @@ def main(argv=None):
     fs = sub.add_parser('fs', help='digest another copy of the repositories: a local tree or a mirror')
     for p in (pulp, fs):
         p.add_argument('--version', required=True, help=f"release: {', '.join(GATED)}")
-        p.add_argument('--arch', required=True, help='basearch, e.g. x86_64, x86_64_v2, aarch64')
+        p.add_argument('--arch', required=True, help='basearch, e.g. x86_64, x86_64_v2, aarch64, ppc64le, s390x')
     pulp.add_argument('--sources', default='pulp',
                       help='repository sources enabled in the test VM: pulp, pulp+testing, pulp+pungi')
     pulp.add_argument('--pulp-base', default=PULP_BASE, help=f'default: {PULP_BASE}')
